@@ -95,3 +95,10 @@ config.json
 # 数据库备份
 *.merge_bak
 backups/
+
+# 服务日志
+_server_*.log
+_*.log
+
+# 优化前的数据库备份（保留在本地，不入库）
+trade_crm.db.pre_v0.2_*

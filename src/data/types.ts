@@ -28,7 +28,10 @@ export interface ICustomer {
   contacts: ICustomerContact[];
   created_at: string;
   starred?: number;
-  data_issues?: string;
+  /** 后端已规范为字符串数组（历史数据可能是 JSON 字符串，用 parseIssues 兼容） */
+  data_issues?: string[] | string;
+  /** 列表接口附带：最近一条跟进时间 */
+  last_followup_at?: string;
 }
 
 export interface IFollowUp {
@@ -41,23 +44,23 @@ export interface IFollowUp {
 }
 
 export const CUSTOMER_STATUS_META: Record<CustomerStatus, { label: string; color: string }> = {
-  lead: { label: '新线索', color: 'bg-gray-100 text-gray-600' },
-  contacted: { label: '初步沟通', color: 'bg-blue-100 text-blue-700' },
-  quoted: { label: '已报价', color: 'bg-amber-100 text-amber-700' },
-  negotiating: { label: '谈判中', color: 'bg-orange-100 text-orange-700' },
-  deal: { label: '已成交', color: 'bg-green-100 text-green-700' },
-  lost: { label: '已流失', color: 'bg-gray-100 text-gray-500' },
+  lead: { label: '新线索', color: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300' },
+  contacted: { label: '初步沟通', color: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300' },
+  quoted: { label: '已报价', color: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300' },
+  negotiating: { label: '谈判中', color: 'bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300' },
+  deal: { label: '已成交', color: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300' },
+  lost: { label: '已流失', color: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400' },
 };
 
 export const CUSTOMER_LEVEL_META: Record<string, { label: string; color: string }> = {
-  '': { label: '未分级', color: 'bg-gray-100 text-gray-500' },
-  L0: { label: 'L0', color: 'bg-gray-100 text-gray-600' },
-  L1: { label: 'L1', color: 'bg-blue-100 text-blue-700' },
-  L2: { label: 'L2', color: 'bg-amber-100 text-amber-700' },
-  L3: { label: 'L3', color: 'bg-orange-100 text-orange-700' },
-  L4: { label: 'L4', color: 'bg-green-100 text-green-700' },
-  '低质': { label: '低质', color: 'bg-red-100 text-red-700' },
-  '优质': { label: '优质', color: 'bg-emerald-100 text-emerald-700' },
+  '': { label: '未分级', color: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400' },
+  L0: { label: 'L0', color: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300' },
+  L1: { label: 'L1', color: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300' },
+  L2: { label: 'L2', color: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300' },
+  L3: { label: 'L3', color: 'bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300' },
+  L4: { label: 'L4', color: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300' },
+  '低质': { label: '低质', color: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300' },
+  '优质': { label: '优质', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' },
 };
 
 export const FOLLOWUP_TYPE_META: Record<FollowUpType, { label: string }> = {
