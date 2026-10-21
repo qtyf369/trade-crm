@@ -350,18 +350,20 @@ def validate_customer(db, data: Dict[str, Any], cid: Optional[str] = None) -> Li
     if level not in VALID_LEVELS:
         issues.append(f"等级不规范：{level}")
 
-    # 邮箱重复：与其它客户的任一联系人比对
+    # 邮箱重复：与其它客户的任一联系人比对（精确匹配，指出重复对象）
     emails = [
         (c.get('email') or '').strip().lower()
         for c in parse_contacts(data.get('contacts'))
         if (c.get('email') or '').strip()
     ]
     if emails:
+        email_set = set(emails)
+        # 先粗筛：JSON 里含该邮箱字符串的行（缩小扫描范围）
         params: List[Any] = []
         clauses = []
-        for e in emails:
-            clauses.append("LOWER(contacts) LIKE ?")
-            params.append(f'%"{e}"%')
+        for e in email_set:
+            clauses.append("contacts LIKE ?")
+            params.append(f'%{e}%')
         where = "(" + " OR ".join(clauses) + ")"
         if cid:
             where += " AND id != ?"
@@ -371,13 +373,10 @@ def validate_customer(db, data: Dict[str, Any], cid: Optional[str] = None) -> Li
         ).fetchall()
         seen = set()
         for row in rows:
-            try:
-                other_contacts = parse_contacts(row['contacts'])
-            except (ValueError, TypeError):
-                continue
-            for oc in other_contacts:
+            for oc in parse_contacts(row['contacts']):
                 oe = (oc.get('email') or '').strip().lower()
-                if oe in emails and oe not in seen:
+                # 精确比对，避免 LIKE 通配符误匹配
+                if oe in email_set and oe not in seen:
                     seen.add(oe)
                     issues.append(
                         f"邮箱重复：{oe}（与{row['company']}的{oc.get('name') or '未知联系人'}重复）"
@@ -1054,13 +1053,13 @@ async def import_excel(file: UploadFile = File(...)):
                 })
         wb.close()
 
-        # 表内邮箱重复统计
-        email_owners: Dict[str, List[str]] = {}
+        # 表内邮箱重复统计：记录邮箱 -> [(公司, 联系人姓名)]
+        email_owners: Dict[str, List[Tuple[str, str]]] = {}
         for company, data in customers_map.items():
             for ct in data['contacts']:
                 e = (ct.get('email') or '').strip().lower()
                 if e:
-                    email_owners.setdefault(e, []).append(company)
+                    email_owners.setdefault(e, []).append((company, ct.get('name') or '未知联系人'))
 
         imported = 0
         skipped = 0
@@ -1074,11 +1073,19 @@ async def import_excel(file: UploadFile = File(...)):
                     continue
 
                 issues = validate_customer(db, data)
+                # 表内邮箱重复：明确指出与哪个公司的哪个联系人重复
+                seen_emails = set()
                 for ct in data['contacts']:
                     e = (ct.get('email') or '').strip().lower()
-                    if e and len(email_owners.get(e, [])) > 1:
-                        issues.append(f"邮箱重复：{e}")
-                        break
+                    if not e or e in seen_emails:
+                        continue
+                    owners = email_owners.get(e, [])
+                    if len(owners) > 1:
+                        # 找出除自己之外的第一条
+                        others = [o for o in owners if o[0] != company] or owners
+                        other_company, other_name = others[0]
+                        issues.append(f"邮箱重复：{e}（与{other_company}的{other_name}重复）")
+                        seen_emails.add(e)
 
                 cid = f"c{uuid.uuid4().hex[:8]}"
                 db.execute(

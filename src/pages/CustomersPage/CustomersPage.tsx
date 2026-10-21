@@ -388,7 +388,17 @@ export default function CustomersPage() {
               有 <strong>{issueCount}</strong> 条客户数据存在问题需要完善
             </span>
           </div>
-          <Button variant="outline" size="sm" onClick={() => setIssuesDialogOpen(true)}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              // 点击"查看"直接筛选出有数据问题的客户（保持原版行为）
+              setIssuesOnly(true);
+              setShowFilterPanel(true);
+              setPage(1);
+              setIssuesDialogOpen(true);
+            }}
+          >
             查看
           </Button>
         </div>
