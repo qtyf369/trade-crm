@@ -191,6 +191,25 @@ python main.py
 后端 API 65 项断言全部通过（分页/筛选/排序/搜索/批量/CRUD/导入导出/数据校验/外键删除），
 前端 `tsc` 零错误，`vite build` 成功，无头浏览器实际渲染四个页面验证通过。
 
+运行测试（需先启动服务）：
+```bash
+tests\run-all.bat      # Windows
+# 或逐个：node tests\api.test.mjs
+```
+
+## 数据安全说明
+
+以下文件含敏感信息或用户数据，已在 `.gitignore` 中排除，**不会**提交到仓库：
+
+| 文件 | 内容 |
+|---|---|
+| `config.json` | 坚果云 WebDAV 账号与应用密码（明文） |
+| `trade_crm.db` | 全部客户数据 |
+| `*.db.bak` / `*.merge_bak` / `backups/` | 数据库备份 |
+| `crm_export.xlsx` | 导出的客户数据 |
+
+换新机器时：复制 `config.json` 过去，或在 CRM 设置里重新绑定坚果云。
+
 
 ## 功能列表
 - 客户管理（增删改查、多联系人、多邮箱、社交账号）
