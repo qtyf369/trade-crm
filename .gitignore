@@ -1,0 +1,97 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Production builds
+dist/
+*/dist/
+build/
+*/build/
+
+# Environment files
+.env.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+/logs/
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary folders
+tmp/
+temp/
+.playwright-cli/
+
+# Lock files (keep package-lock.json for consistent installs)
+yarn.lock
+pnpm-lock.yaml
+
+# Cache files
+.eslintcache
+*.tsbuildinfo
+
+# swc wasm
+.swc
+
+# Agent files
+.agent/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+
+# æ•°æ®åº“æ–‡ä»¶ï¼ˆç”¨æˆ·æ•°æ®ä¸å…¥åº“ï¼‰
+*.db
+*.sqlite
+*.sqlite3
+
+# å¯¼å‡ºçš„Excelæ–‡ä»¶
+*.xlsx
+*.xls
+
+# æµ‹è¯•æ•°æ®
+æµ‹è¯•*.xlsx
+
+# ä¸´æ—¶æ–‡ä»¶
+*.tmp
+*.bak
+
+# º¬Ã÷ÎÄÆ¾¾İ£¬½ûÖ¹Èë¿â
+config.json
+
+# Êı¾İ¿â±¸·İ
+*.merge_bak
+backups/

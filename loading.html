@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Trade CRM - 正在启动</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+  }
+  .container {
+    text-align: center;
+    padding: 40px;
+  }
+  .logo {
+    font-size: 48px;
+    font-weight: 700;
+    margin-bottom: 20px;
+    letter-spacing: 2px;
+  }
+  .spinner {
+    width: 60px;
+    height: 60px;
+    border: 4px solid rgba(255,255,255,0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    margin: 0 auto 30px;
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+  .text {
+    font-size: 18px;
+    opacity: 0.9;
+  }
+  .hint {
+    margin-top: 20px;
+    font-size: 14px;
+    opacity: 0.6;
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">Trade CRM</div>
+    <div class="spinner"></div>
+    <div class="text">正在启动，请稍候...</div>
+    <div class="hint">首次启动可能需要几秒钟</div>
+  </div>
+
+  <script>
+    async function checkServer() {
+      try {
+        const res = await fetch('http://localhost:8000/api/customers?page=1&page_size=1');
+        if (res.ok) {
+          window.location.href = 'http://localhost:8000/';
+          return;
+        }
+      } catch (e) {
+        // 还没好，继续等
+      }
+      setTimeout(checkServer, 1000);
+    }
+    checkServer();
+  </script>
+</body>
+</html>
