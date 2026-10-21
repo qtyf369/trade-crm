@@ -55,9 +55,12 @@ export default function FollowUpsPage() {
       .catch(() => {});
   };
 
+  // 挂载时取一次时间基准（React Compiler 要求渲染过程保持纯净）
+  const [nowTs] = useState(() => Date.now());
+
   const stats = useMemo(() => {
-    const today = new Date().toDateString();
-    const weekAgo = Date.now() - 7 * 86400000;
+    const today = new Date(nowTs).toDateString();
+    const weekAgo = nowTs - 7 * 86400000;
     let todayCount = 0;
     let weekCount = 0;
     for (const f of followups) {
@@ -67,7 +70,7 @@ export default function FollowUpsPage() {
       if (d.getTime() >= weekAgo) weekCount++;
     }
     return { todayCount, weekCount, total: followups.length };
-  }, [followups]);
+  }, [followups, nowTs]);
 
   const openAdd = () => {
     setEditing(null);

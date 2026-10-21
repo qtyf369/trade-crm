@@ -32,19 +32,24 @@ export default function BatchExportDialog({ open, onOpenChange, currentIds, onEx
 
   useEffect(() => {
     if (!open) return;
-    setChecked(new Set(currentIds));
+    // 延后一帧，避免在 effect 中同步 setState
+    const t = setTimeout(() => setChecked(new Set(currentIds)), 0);
+    return () => clearTimeout(t);
   }, [open, currentIds]);
 
   useEffect(() => {
     if (!open || mode !== 'check' || list.length > 0) return;
-    setLoading(true);
-    api.listCustomers({ page: 1, page_size: 500, sort_by: 'company' })
-      .then((r) => {
-        setList(r.items.map((c) => ({ id: c.id, company: c.company })));
-        setTotal(r.total);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    const t = setTimeout(() => {
+      setLoading(true);
+      api.listCustomers({ page: 1, page_size: 500, sort_by: 'company' })
+        .then((r) => {
+          setList(r.items.map((c) => ({ id: c.id, company: c.company })));
+          setTotal(r.total);
+        })
+        .catch(() => {})
+        .finally(() => setLoading(false));
+    }, 0);
+    return () => clearTimeout(t);
   }, [open, mode, list.length]);
 
   const toggle = (id: string) =>

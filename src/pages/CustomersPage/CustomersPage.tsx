@@ -90,15 +90,22 @@ export default function CustomersPage() {
     selectedCountries.length + selectedLevels.length +
     selectedStatuses.length + selectedSources.length;
 
+  // 预先算好各维度筛选的字符串 key，供 useCallback 依赖使用
+  // （依赖数组不允许放表达式）
+  const countryKey = selectedCountries.join(',');
+  const levelKey = selectedLevels.join(',');
+  const statusKey = selectedStatuses.join(',');
+  const sourceKey = selectedSources.join(',');
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const res = await api.listCustomers({
         search: debouncedSearch,
-        country: selectedCountries.join(','),
-        level: selectedLevels.join(','),
-        status: selectedStatuses.join(','),
-        source: selectedSources.join(','),
+        country: countryKey,
+        level: levelKey,
+        status: statusKey,
+        source: sourceKey,
         starred: starredOnly,
         issues: issuesOnly,
         sort_by: sortBy,
@@ -114,28 +121,35 @@ export default function CustomersPage() {
       setLoading(false);
     }
   }, [
-    debouncedSearch, selectedCountries.join(','), selectedLevels.join(','),
-    selectedStatuses.join(','), selectedSources.join(','), starredOnly, issuesOnly,
-    sortBy, sortAsc, page, pageSize,
+    debouncedSearch, countryKey, levelKey, statusKey, sourceKey,
+    starredOnly, issuesOnly, sortBy, sortAsc, page, pageSize,
   ]);
 
+  // 查询依赖变化时重新加载；用 setTimeout 脱离同步渲染阶段
   useEffect(() => {
-    load();
+    const t = setTimeout(() => load(), 0);
+    return () => clearTimeout(t);
   }, [load]);
 
-  // 切换筛选条件时回到第一页
+  // 切换筛选条件时回到第一页（延后到下一帧，避免级联渲染）
+  const filterKey = [countryKey, levelKey, statusKey, sourceKey, starredOnly, issuesOnly].join('|');
   useEffect(() => {
-    setPage(1);
-  }, [selectedCountries, selectedLevels, selectedStatuses, selectedSources, starredOnly, issuesOnly]);
+    const t = setTimeout(() => setPage(1), 0);
+    return () => clearTimeout(t);
+  }, [filterKey]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   // 有数据问题的客户数（单独拉一次，仅用于顶部提醒条）
   const [issueCount, setIssueCount] = useState(0);
   useEffect(() => {
-    api.listCustomers({ issues: true, page: 1, page_size: 1 })
-      .then((r) => setIssueCount(r.total))
-      .catch(() => {});
+    let alive = true;
+    const t = setTimeout(() => {
+      api.listCustomers({ issues: true, page: 1, page_size: 1 })
+        .then((r) => { if (alive) setIssueCount(r.total); })
+        .catch(() => {});
+    }, 0);
+    return () => { alive = false; clearTimeout(t); };
   }, []);
 
   const toggleSort = (key: SortKey) => {
@@ -264,7 +278,8 @@ export default function CustomersPage() {
     setIssuesOnly(false);
   };
 
-  const now = useMemo(() => Date.now(), []);
+  // 页面挂载时取一次时间基准，用于"最近跟进"天数计算
+  const [now] = useState(() => Date.now());
 
   return (
     <div className="p-6 max-w-7xl mx-auto">

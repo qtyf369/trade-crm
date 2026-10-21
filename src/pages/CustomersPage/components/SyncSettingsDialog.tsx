@@ -33,23 +33,22 @@ export default function SyncSettingsDialog({ open, onOpenChange }: Props) {
   const [remoteHasData, setRemoteHasData] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const loadState = () => {
-    fetch('/api/sync/config')
-      .then((r) => r.json())
-      .then((d: SyncState) => {
-        setState(d);
-        if (d.webdav_url) setUrl(d.webdav_url);
-        if (d.webdav_user) setUser(d.webdav_user);
-        setPass('');
-      })
-      .catch(() => {});
-  };
-
   useEffect(() => {
-    if (open) {
-      loadState();
+    if (!open) return;
+    // 延后一帧执行，避免在 effect 中同步 setState 触发级联渲染
+    const t = setTimeout(() => {
+      fetch('/api/sync/config')
+        .then((r) => r.json())
+        .then((d: SyncState) => {
+          setState(d);
+          if (d.webdav_url) setUrl(d.webdav_url);
+          if (d.webdav_user) setUser(d.webdav_user);
+          setPass('');
+        })
+        .catch(() => {});
       setTestResult(null);
-    }
+    }, 0);
+    return () => clearTimeout(t);
   }, [open]);
 
   const bound = !!state?.webdav_pass_saved;

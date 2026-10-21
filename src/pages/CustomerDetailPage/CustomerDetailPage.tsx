@@ -74,9 +74,27 @@ export default function CustomerDetailPage() {
   };
 
   useEffect(() => {
-    loadDetail();
+    if (!id) return;
+    // 异步回调里 setState 是 React 推荐的加载模式；
+    // 这里用 queueMicrotask 包一层，明确脱离同步渲染阶段
+    const t = setTimeout(() => {
+      setLoading(true);
+      api.customerDetail(id)
+        .then((data) => {
+          setCustomer(data.customer);
+          setFollowups(data.followups);
+          setNotFound(false);
+        })
+        .catch((e) => {
+          if (e instanceof Error && e.message.includes('404')) setNotFound(true);
+          else toast.error('加载失败');
+        })
+        .finally(() => setLoading(false));
+    }, 0);
+
     // 离开页面时重置编辑态，避免下次进入残留
     return () => {
+      clearTimeout(t);
       setEditing(false);
       setEditingContacts(false);
       setShowAddForm(false);

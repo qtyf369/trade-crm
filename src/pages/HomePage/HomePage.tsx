@@ -30,18 +30,13 @@ export default function HomePage() {
     return () => { alive = false; };
   }, []);
 
-  const today = new Date().toDateString();
+  // 挂载时取一次时间基准（React Compiler 要求渲染过程保持纯净）
+  const [nowTs] = useState(() => Date.now());
+
   const todayFollowups = followups.filter((f) => {
     if (!f.created_at) return false;
-    return new Date(f.created_at.replace(' ', 'T')).toDateString() === today;
+    return new Date(f.created_at.replace(' ', 'T')).toDateString() === new Date(nowTs).toDateString();
   }).length;
-
-  const stats = [
-    { title: '客户总数', value: customers.length ? '—' : 0, icon: Users, color: 'text-blue-600', bg: 'bg-blue-50 dark:bg-blue-950/40' },
-    { title: '跟进中', value: customers.filter((c) => ['contacted', 'quoted', 'negotiating'].includes(c.status)).length, icon: Clock, color: 'text-amber-600', bg: 'bg-amber-50 dark:bg-amber-950/40' },
-    { title: '已成交', value: customers.filter((c) => c.status === 'deal').length, icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-50 dark:bg-green-950/40' },
-    { title: '今日已跟进', value: todayFollowups, icon: UserPlus, color: 'text-purple-600', bg: 'bg-purple-50 dark:bg-purple-950/40', onClick: () => navigate('/followups') },
-  ];
 
   return (
     <div className="p-6 max-w-6xl mx-auto">

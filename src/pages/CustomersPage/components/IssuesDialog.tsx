@@ -18,19 +18,23 @@ export default function IssuesDialog({ open, onOpenChange }: Props) {
 
   useEffect(() => {
     if (!open) return;
-    setLoading(true);
-    api.listCustomers({ issues: true, page: 1, page_size: 500 })
-      .then((r) =>
-        setItems(
-          r.items.map((c) => ({
-            id: c.id,
-            company: c.company,
-            issues: parseIssues(c.data_issues),
-          })),
-        ),
-      )
-      .catch(() => setItems([]))
-      .finally(() => setLoading(false));
+    // 延后一帧，避免在 effect 中同步 setState
+    const t = setTimeout(() => {
+      setLoading(true);
+      api.listCustomers({ issues: true, page: 1, page_size: 500 })
+        .then((r) =>
+          setItems(
+            r.items.map((c) => ({
+              id: c.id,
+              company: c.company,
+              issues: parseIssues(c.data_issues),
+            })),
+          ),
+        )
+        .catch(() => setItems([]))
+        .finally(() => setLoading(false));
+    }, 0);
+    return () => clearTimeout(t);
   }, [open]);
 
   return (
