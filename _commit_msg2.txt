@@ -1,8 +1,0 @@
-fix: 消除 ESLint 错误，符合 React Compiler 纯度规则
-
-- 渲染中的 Date.now()/new Date() 移到 useState 初始化器
-- useEffect 内的数据加载用 setTimeout 延后一帧，避免同步 setState 触发级联渲染
-- useCallback 依赖数组改用预先计算的字符串 key（依赖数组不允许表达式）
-- 补回 CustomerDetailPage 误删的 X 图标导入
-- 删除 HomePage 未使用的 stats 变量
-- 结果：tsc 0 错误，eslint 0 错误（仅 20 条样式类 warning），build 成功
