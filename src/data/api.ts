@@ -111,12 +111,34 @@ export const api = {
     request<{ ok: boolean }>(`/followups/${id}`, { method: 'DELETE' }),
 
   // 导入导出
-  exportUrl: (params: { ids?: string; start?: number; end?: number; search?: string } = {}) => {
+  /** 导出 URL。序号范围模式传当前列表的筛选/排序，保证序号与列表一致 */
+  exportUrl: (params: {
+    ids?: string;
+    start?: number;
+    end?: number;
+    search?: string;
+    country?: string;
+    level?: string;
+    status?: string;
+    source?: string;
+    starred?: boolean;
+    issues?: boolean;
+    sort_by?: string;
+    sort_asc?: boolean;
+  } = {}) => {
     const q = new URLSearchParams();
     if (params.ids) q.set('ids', params.ids);
     if (params.start) q.set('start', String(params.start));
     if (params.end) q.set('end', String(params.end));
     if (params.search) q.set('search', params.search);
+    if (params.country) q.set('country', params.country);
+    if (params.level) q.set('level', params.level);
+    if (params.status) q.set('status', params.status);
+    if (params.source) q.set('source', params.source);
+    if (params.starred) q.set('starred', 'true');
+    if (params.issues) q.set('issues', 'true');
+    if (params.sort_by) q.set('sort_by', params.sort_by);
+    if (params.sort_asc !== undefined) q.set('sort_asc', String(params.sort_asc));
     const s = q.toString();
     return `${BASE}/export${s ? `?${s}` : ''}`;
   },

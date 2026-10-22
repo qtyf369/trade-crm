@@ -10,24 +10,32 @@ import {
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** 当前筛选/搜索下的客户总数（序号范围的上界参考） */
+  currentTotal: number;
   /** 当前页客户 id，勾选模式默认勾选本页 */
   currentIds: string[];
+  /** 勾选导出 */
   onExport: (ids: string[]) => void;
+  /** 序号范围导出（沿用当前列表的筛选与排序，序号与列表序号列一致） */
+  onExportRange: (start: number, end: number) => void;
 }
 
 type Mode = 'range' | 'check';
 
 /**
  * 批量导出：序号范围 / 勾选客户两种模式。
+ * 序号范围沿用当前列表的筛选与排序（与列表序号列一致）；
+ * Excel 内的序号列由后端按导出范围重新从 1 编号，纯展示、与内部 id 无关。
  * 勾选模式只加载一次全量公司名用于勾选，避免大数据量下卡顿。
  */
-export default function BatchExportDialog({ open, onOpenChange, currentIds, onExport }: Props) {
+export default function BatchExportDialog({
+  open, onOpenChange, currentTotal, currentIds, onExport, onExportRange,
+}: Props) {
   const [mode, setMode] = useState<Mode>('range');
   const [start, setStart] = useState(1);
   const [end, setEnd] = useState(0);
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [list, setList] = useState<{ id: string; company: string }[]>([]);
-  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -42,10 +50,7 @@ export default function BatchExportDialog({ open, onOpenChange, currentIds, onEx
     const t = setTimeout(() => {
       setLoading(true);
       api.listCustomers({ page: 1, page_size: 500, sort_by: 'company' })
-        .then((r) => {
-          setList(r.items.map((c) => ({ id: c.id, company: c.company })));
-          setTotal(r.total);
-        })
+        .then((r) => setList(r.items.map((c) => ({ id: c.id, company: c.company }))))
         .catch(() => {})
         .finally(() => setLoading(false));
     }, 0);
@@ -63,11 +68,8 @@ export default function BatchExportDialog({ open, onOpenChange, currentIds, onEx
   const submit = () => {
     if (mode === 'range') {
       const from = Math.max(1, start || 1);
-      const to = end && end >= from ? end : total || 0;
-      // 序号范围模式走后端 start/end
-      onExport([]);
-      const url = api.exportUrl({ start: from, end: to });
-      window.open(url, '_blank');
+      const to = end && end >= from ? end : currentTotal;
+      onExportRange(from, to);
     } else {
       if (checked.size === 0) return;
       onExport(Array.from(checked));
@@ -95,7 +97,8 @@ export default function BatchExportDialog({ open, onOpenChange, currentIds, onEx
           {mode === 'range' ? (
             <>
               <p className="text-sm text-muted-foreground">
-                按当前排序后的序号导出。共 {total || '—'} 个客户（打开弹窗后自动获取）。
+                序号与当前列表一致（含筛选与排序），共 {currentTotal} 个客户。
+                Excel 内序号按导出范围重新从 1 编号。
               </p>
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2">
@@ -107,15 +110,12 @@ export default function BatchExportDialog({ open, onOpenChange, currentIds, onEx
                   <Input type="number" min={0} value={end} onChange={(e) => setEnd(Number(e.target.value))} />
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground">
-                提示：序号范围模式基于服务端默认排序（公司名）。如需精确控制，建议用"勾选客户"。
-              </p>
             </>
           ) : (
             <>
               <p className="text-sm text-muted-foreground">
                 已选 {checked.size} 个客户
-                {total > list.length && `（仅加载前 ${list.length} / ${total}）`}
+                {currentTotal > list.length && `（仅加载前 ${list.length} / ${currentTotal}）`}
               </p>
               <div className="max-h-60 overflow-y-auto border rounded-md">
                 {loading ? (

@@ -551,8 +551,25 @@ export default function CustomersPage() {
       <BatchExportDialog
         open={batchExportOpen}
         onOpenChange={setBatchExportOpen}
+        currentTotal={total}
         currentIds={items.map((c) => c.id)}
         onExport={(ids) => window.open(api.exportUrl({ ids: ids.join(',') }), '_blank')}
+        onExportRange={(from, to) =>
+          window.open(api.exportUrl({
+            // 序号范围沿用当前列表的筛选与排序，保证与列表序号一致
+            search: debouncedSearch,
+            country: countryKey,
+            level: levelKey,
+            status: statusKey,
+            source: sourceKey,
+            starred: starredOnly,
+            issues: issuesOnly,
+            sort_by: sortBy,
+            sort_asc: sortAsc,
+            start: from,
+            end: to,
+          }), '_blank')
+        }
       />
 
       <SyncSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />

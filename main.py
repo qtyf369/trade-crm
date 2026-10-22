@@ -22,7 +22,7 @@ import tempfile
 import threading
 from contextlib import contextmanager
 from datetime import datetime, date
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any, Tuple, Union
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Depends
 from fastapi.staticfiles import StaticFiles
@@ -409,7 +409,9 @@ class Customer(BaseModel):
     products: str = ""
     contacts: List[CustomerContact] = []
     starred: int = 0
-    data_issues: str = "[]"
+    # 列表/详情接口把 data_issues 解析成数组返回，前端会原样回传；
+    # 这里两种形态都接受（实际落库永远以 validate_customer 的重算结果为准）
+    data_issues: Union[str, List[str], None] = "[]"
     last_followup_at: Optional[str] = None
 
 
@@ -858,8 +860,23 @@ def export_excel(
     start: int = Query(1, ge=1),
     end: int = Query(0, ge=0),
     search: str = '',
+    country: str = '',
+    level: str = '',
+    status: str = '',
+    source: str = '',
+    starred: bool = False,
+    issues: bool = False,
+    sort_by: str = 'company',
+    sort_asc: bool = True,
 ):
-    """导出 Excel。支持：ids=逗号分隔 / 序号范围 start-end / 全量。"""
+    """
+    导出 Excel。支持：ids=逗号分隔 / 序号范围 start-end / 全量。
+
+    序号范围模式沿用与列表接口相同的筛选与排序参数，保证"序号 N"
+    与客户列表里看到的序号一致。Excel 内的序号列按导出范围重新从 1
+    编号（纯展示用途，与内部 id 无关）；导入时按公司名称识别重复，
+    完全不读序号列。
+    """
     with get_db() as db:
         rows: List[Dict[str, Any]] = []
         if ids:
@@ -880,13 +897,17 @@ def export_excel(
             ).fetchall()
             rows = [row_to_customer(r) for r in raw]
         else:
-            # 复用查询逻辑，page_size 拉到上限拿全量（单机数据量可控）
+            # 复用列表查询逻辑（同样的筛选/排序），page_size 拉到上限拿全量
             page_size = 500
             page = 1
             while True:
                 items, total = query_customers(
-                    db, search=search, page=page, page_size=page_size,
-                    sort_by='company', sort_asc=True,
+                    db,
+                    **build_query_params(
+                        search, country, level, status, source,
+                        starred, issues, sort_by, sort_asc,
+                        page, page_size,
+                    ),
                 )
                 rows.extend(items)
                 if len(rows) >= total or not items:
@@ -935,6 +956,7 @@ def export_excel(
     ws.row_dimensions[HEADER_ROW].height = 28
 
     row_idx = HEADER_ROW + 1
+    # 序号按导出范围重新编号 1..N：纯展示用途，多联系人客户占多行但共享同一序号
     for seq, c in enumerate(rows, 1):
         contacts = c.get('contacts') or []
         if not contacts:
