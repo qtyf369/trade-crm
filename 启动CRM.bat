@@ -1,57 +1,40 @@
 @echo off
+chcp 936 >nul 2>&1
 cd /d "%~dp0"
-title Trade CRM Server
+title ÍâÃ³CRM
 
-echo.
-echo  ============================================
-echo    Trade CRM - Local Edition (v0.2)
-echo    Data: trade_crm.db
-echo    Close this window to stop
-echo  ============================================
-echo.
+REM ÈôÒÑÔÚÔËÐÐ£¬Ö±½Ó´ò¿ªÒ³Ãæ£¬±ÜÃâ¶Ë¿ÚÕ¼ÓÃ±¨´í
+netstat -ano | findstr ":8000" | findstr "LISTENING" >nul 2>&1
+if not errorlevel 1 (
+    echo ¼ì²âµ½ CRM ÒÑÔÚÔËÐÐ£¬ÕýÔÚÎªÄã´ò¿ªÒ³Ãæ...
+    start "" "http://localhost:8000"
+    pause
+    exit /b 0
+)
 
-REM æ£€æŸ¥pythonæ˜¯å¦å¯ç”¨
 python --version >nul 2>&1
 if errorlevel 1 (
-    echo [ERROR] Python not found!
-    echo.
-    echo  è¯·å…ˆå®‰è£… Python 3.10+ï¼Œç„¶åŽæ‰§è¡Œï¼š
-    echo    pip install -r requirements.txt
-    echo.
+    echo Î´ÕÒµ½ Python£¬ÇëÏÈ°²×° Python 3.10+ ²¢¼ÓÈë PATH¡£
     pause
     exit /b 1
 )
 
-REM æ£€æŸ¥ä¾èµ–æ˜¯å¦å®‰è£…ï¼ˆé¦–æ¬¡è¿è¡Œæœ€å¸¸è§çš„é—®é¢˜ï¼‰
-python -c "import fastapi, uvicorn, openpyxl, requests, multipart" >nul 2>&1
+REM ÒÀÀµÆëÈ«ÔòÖ±½ÓÆô¶¯£»È±Ê§Ê±×Ô¶¯²¹×°£¨½öÊ×´Î½ÏÂý£©
+python -c "import fastapi, uvicorn, openpyxl, requests, python_multipart" >nul 2>&1
 if errorlevel 1 (
-    echo [INFO] æ£€æµ‹åˆ°ç¼ºå°‘ä¾èµ–ï¼Œæ­£åœ¨è‡ªåŠ¨å®‰è£…...
-    echo.
-    python -m pip install -r requirements.txt
+    echo ÕýÔÚ°²×°ÒÀÀµ£¬ÇëÉÔºò...
+    python -m pip install -q --disable-pip-version-check -r requirements.txt
     if errorlevel 1 (
-        echo.
-        echo [ERROR] ä¾èµ–å®‰è£…å¤±è´¥ï¼Œè¯·æ‰‹åŠ¨æ‰§è¡Œï¼š
-        echo    pip install -r requirements.txt
-        echo.
+        echo ÒÀÀµ°²×°Ê§°Ü£¬ÇëÊÖ¶¯Ö´ÐÐ£º
+        echo     python -m pip install -r requirements.txt
         pause
         exit /b 1
     )
 )
 
-REM æ£€æŸ¥main.pyæ˜¯å¦å­˜åœ¨
-if not exist main.py (
-    echo [ERROR] main.py not found in %cd%
-    pause
-    exit /b 1
-)
-
-echo Starting server...
-echo.
-
 start "" "%~dp0loading.html"
-
 python main.py
 
 echo.
-echo Server stopped.
-pause
+echo ·þÎñÒÑÍ£Ö¹£¬°´ÈÎÒâ¼ü¹Ø±Õ±¾´°¿Ú¡£
+pause >nul

@@ -20,7 +20,6 @@ import { toast } from 'sonner';
 import CustomerTable from './components/CustomerTable';
 import CustomerFormDialog from './components/CustomerFormDialog';
 import BatchExportDialog from './components/BatchExportDialog';
-import IssuesDialog from './components/IssuesDialog';
 import FilterPanel from './components/FilterPanel';
 import SyncSettingsDialog from './components/SyncSettingsDialog';
 
@@ -68,7 +67,6 @@ export default function CustomersPage() {
   const [form, setForm] = useState(emptyCustomer);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [batchExportOpen, setBatchExportOpen] = useState(false);
-  const [issuesDialogOpen, setIssuesDialogOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showFilterPanel, setShowFilterPanel] = useState(false);
 
@@ -388,19 +386,28 @@ export default function CustomersPage() {
               有 <strong>{issueCount}</strong> 条客户数据存在问题需要完善
             </span>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              // 点击"查看"直接筛选出有数据问题的客户（保持原版行为）
-              setIssuesOnly(true);
-              setShowFilterPanel(true);
-              setPage(1);
-              setIssuesDialogOpen(true);
-            }}
-          >
-            查看
-          </Button>
+          {issuesOnly ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIssuesOnly(false)}
+            >
+              取消筛选
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                // 点击"查看"直接筛选出有数据问题的客户
+                setIssuesOnly(true);
+                setShowFilterPanel(true);
+                setPage(1);
+              }}
+            >
+              查看
+            </Button>
+          )}
         </div>
       )}
 
@@ -547,8 +554,6 @@ export default function CustomersPage() {
         currentIds={items.map((c) => c.id)}
         onExport={(ids) => window.open(api.exportUrl({ ids: ids.join(',') }), '_blank')}
       />
-
-      <IssuesDialog open={issuesDialogOpen} onOpenChange={setIssuesDialogOpen} />
 
       <SyncSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>
