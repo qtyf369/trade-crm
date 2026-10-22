@@ -88,6 +88,62 @@
   --spacing: 0.25rem;
 }
 
+/* 暗色主题：class 策略（documentElement.classList.toggle('dark')） */
+.dark {
+  --button-outline: rgba(255,255,255, .12);
+  --badge-outline: rgba(255,255,255, .06);
+  --opaque-button-border-intensity: 10;
+  --elevate-1: rgba(255,255,255, .04);
+  --elevate-2: rgba(255,255,255, .09);
+
+  --background: hsl(222 47% 9%);
+  --foreground: hsl(210 40% 96%);
+  --card: hsl(222 47% 11%);
+  --card-foreground: hsl(210 40% 96%);
+  --card-border: hsl(222 47% 18%);
+  --popover: hsl(222 47% 11%);
+  --popover-foreground: hsl(210 40% 96%);
+  --primary: hsl(221 83% 60%);
+  --primary-foreground: hsl(220 14% 98%);
+  --secondary: hsl(222 32% 16%);
+  --secondary-foreground: hsl(210 40% 96%);
+  --muted: hsl(222 32% 14%);
+  --muted-foreground: hsl(218 15% 65%);
+  --accent: hsl(221 40% 22%);
+  --accent-foreground: hsl(210 40% 96%);
+  --info: hsl(221 83% 63%);
+  --info-foreground: hsl(230 100% 98%);
+  --destructive: hsl(2 84% 62%);
+  --destructive-foreground: hsl(0 0% 100%);
+  --success: hsl(130 54% 52%);
+  --success-foreground: hsl(115 77% 97%);
+  --warning: hsl(26 90% 55%);
+  --warning-foreground: hsl(33 100% 96%);
+  --border: hsl(222 30% 20%);
+  --input: hsl(222 30% 20%);
+  --ring: hsl(221 83% 60%);
+  --chart-1: hsl(221 83% 60%);
+  --chart-2: hsl(174 60% 55%);
+  --chart-3: hsl(32 95% 55%);
+  --chart-4: hsl(262 52% 62%);
+  --chart-5: hsl(0 84% 65%);
+  --sidebar: hsl(222 47% 7%);
+  --sidebar-foreground: hsl(210 40% 96%);
+  --sidebar-primary: hsl(221 83% 60%);
+  --sidebar-primary-foreground: hsl(0 0% 100%);
+  --sidebar-accent: hsl(221 40% 20%);
+  --sidebar-accent-foreground: hsl(210 40% 96%);
+  --sidebar-border: hsl(222 47% 15%);
+  --sidebar-ring: hsl(221 83% 60%);
+
+  --shadow-x: 0px;
+  --shadow-y: 2px;
+  --shadow-blur: 12px;
+  --shadow-spread: 0px;
+  --shadow-opacity: 0.3;
+  --shadow-color: #000000;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

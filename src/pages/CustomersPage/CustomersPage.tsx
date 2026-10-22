@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Plus, Search, Pencil, Trash2, Filter, X, Star, Settings, Upload, Download,
+  Plus, Search, Pencil, Trash2, Filter, X, Star, Upload, Download,
   AlertTriangle, CheckSquare, RefreshCw,
 } from 'lucide-react';
 import { api, type BatchAction } from '@/data/api';
@@ -21,9 +21,11 @@ import CustomerTable from './components/CustomerTable';
 import CustomerFormDialog from './components/CustomerFormDialog';
 import BatchExportDialog from './components/BatchExportDialog';
 import FilterPanel from './components/FilterPanel';
-import SyncSettingsDialog from './components/SyncSettingsDialog';
 
-type SortKey = 'company' | 'country' | 'level' | 'status' | 'source' | 'last_followup_at' | 'created_at';
+type SortKey = 'company' | 'country' | 'level' | 'status' | 'source' | 'last_followup_at' | 'created_at' | 'starred';
+
+/** 工具栏按钮的统一动效：悬浮微抬 + 按下回弹 */
+const hoverBtn = 'transition-all duration-200 hover:shadow-md active:scale-[0.97]';
 
 const emptyCustomer = {
   company: '',
@@ -67,7 +69,6 @@ export default function CustomersPage() {
   const [form, setForm] = useState(emptyCustomer);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [batchExportOpen, setBatchExportOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [showFilterPanel, setShowFilterPanel] = useState(false);
 
   // ---- 批量模式 ----
@@ -150,7 +151,26 @@ export default function CustomersPage() {
     return () => { alive = false; clearTimeout(t); };
   }, []);
 
+  // 星标优先切换前的排序快照，用于再点一次还原
+  const [sortReturn, setSortReturn] = useState<{ by: SortKey; asc: boolean } | null>(null);
+
   const toggleSort = (key: SortKey) => {
+    if (key === 'starred') {
+      if (sortBy === 'starred') {
+        // 再点一次：还原进入星标优先之前的排序
+        const back = sortReturn ?? ({ by: 'company', asc: true } as { by: SortKey; asc: boolean });
+        setSortBy(back.by);
+        setSortAsc(back.asc);
+        setSortReturn(null);
+      } else {
+        setSortReturn({ by: sortBy, asc: sortAsc });
+        setSortBy('starred');
+        setSortAsc(false);
+      }
+      return;
+    }
+    // 切到普通列时清掉还原快照
+    setSortReturn(null);
     if (sortBy === key) {
       setSortAsc((v) => !v);
     } else {
@@ -292,11 +312,11 @@ export default function CustomersPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => window.open(api.exportUrl(), '_blank')}>
+          <Button variant="outline" className={hoverBtn} onClick={() => window.open(api.exportUrl(), '_blank')}>
             <Download className="mr-2 h-4 w-4" />
             导出全部
           </Button>
-          <Button variant="outline" onClick={() => setBatchExportOpen(true)}>
+          <Button variant="outline" className={hoverBtn} onClick={() => setBatchExportOpen(true)}>
             批量导出
           </Button>
           <label>
@@ -310,17 +330,18 @@ export default function CustomersPage() {
                 e.target.value = '';
               }}
             />
-            <span className="inline-flex items-center justify-center rounded-md text-sm font-medium border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 px-4 py-2 cursor-pointer">
+            <span className={`inline-flex items-center justify-center rounded-md text-sm font-medium border border-input bg-background hover:bg-accent hover:text-accent-foreground hover:shadow-md h-10 px-4 py-2 cursor-pointer transition-all duration-200 active:scale-[0.97]`}>
               <Upload className="mr-2 h-4 w-4" />
               导入Excel
             </span>
           </label>
-          <Button onClick={openAdd}>
+          <Button className={hoverBtn} onClick={openAdd}>
             <Plus className="mr-2 h-4 w-4" />
             新增客户
           </Button>
           <Button
             variant={batchMode ? 'default' : 'outline'}
+            className={hoverBtn}
             onClick={() => {
               setBatchMode((v) => !v);
               setSelected(new Set());
@@ -328,9 +349,6 @@ export default function CustomersPage() {
           >
             <CheckSquare className="mr-2 h-4 w-4" />
             {batchMode ? '退出批量' : '批量操作'}
-          </Button>
-          <Button variant="outline" onClick={() => setSettingsOpen(true)}>
-            <Settings className="h-4 w-4" />
           </Button>
         </div>
       </div>
@@ -390,6 +408,7 @@ export default function CustomersPage() {
             <Button
               variant="outline"
               size="sm"
+              className={hoverBtn}
               onClick={() => setIssuesOnly(false)}
             >
               取消筛选
@@ -398,6 +417,7 @@ export default function CustomersPage() {
             <Button
               variant="outline"
               size="sm"
+              className={hoverBtn}
               onClick={() => {
                 // 点击"查看"直接在列表中筛出问题客户
                 setIssuesOnly(true);
@@ -423,6 +443,7 @@ export default function CustomersPage() {
         </div>
         <Button
           variant={showFilterPanel || activeFilterCount > 0 ? 'default' : 'outline'}
+          className={hoverBtn}
           onClick={() => setShowFilterPanel((v) => !v)}
         >
           <Filter className="mr-2 h-4 w-4" />
@@ -466,6 +487,8 @@ export default function CustomersPage() {
           sortBy={sortBy}
           sortAsc={sortAsc}
           onSort={toggleSort}
+          starSortActive={sortBy === 'starred'}
+          onToggleStarSort={() => toggleSort('starred')}
           onEdit={openEdit}
           onDelete={setDeleteConfirm}
           onStar={toggleStar}
@@ -572,7 +595,6 @@ export default function CustomersPage() {
         }
       />
 
-      <SyncSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>
   );
 }

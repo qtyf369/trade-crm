@@ -151,4 +151,12 @@ export const api = {
     if (!res.ok) throw new Error(data.detail || '导入失败');
     return data as { imported: number; skipped: number; total: number };
   },
+
+  // 同步配置（供侧栏头像状态使用）
+  getSyncConfig: () =>
+    request<{ webdav_url: string; webdav_user: string; webdav_pass_saved: boolean; auto_sync: boolean }>(
+      '/sync/config',
+    ),
+
+  checkRemote: () => request<{ has_remote: boolean }>('/sync/check_remote', { method: 'POST' }),
 };

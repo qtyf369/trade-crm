@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 
-export type SortKey = 'company' | 'country' | 'level' | 'status' | 'source' | 'last_followup_at' | 'created_at';
+export type SortKey = 'company' | 'country' | 'level' | 'status' | 'source' | 'last_followup_at' | 'created_at' | 'starred';
 
 interface Props {
   items: ICustomer[];
@@ -20,6 +20,10 @@ interface Props {
   sortBy: SortKey;
   sortAsc: boolean;
   onSort: (key: SortKey) => void;
+  /** 星标优先模式是否激活（表头星标按钮高亮） */
+  starSortActive: boolean;
+  /** 点击星标表头：切换"星标客户优先"，再点还原之前的排序 */
+  onToggleStarSort: () => void;
   onEdit: (c: ICustomer) => void;
   onDelete: (id: string) => void;
   onStar: (c: ICustomer) => void;
@@ -39,7 +43,8 @@ function SortButton({
 
 export default function CustomerTable({
   items, loading, now, startIndex, batchMode, selected, setSelected,
-  sortBy, sortAsc, onSort, onEdit, onDelete, onStar, onOpen,
+  sortBy, sortAsc, onSort, starSortActive, onToggleStarSort,
+  onEdit, onDelete, onStar, onOpen,
 }: Props) {
   const allChecked = items.length > 0 && items.every((c) => selected.has(c.id));
 
@@ -72,7 +77,25 @@ export default function CustomerTable({
               </th>
             )}
             <th className="px-3 py-3 w-10 text-center font-medium">序号</th>
-            <th className="px-3 py-3 w-10 text-center">星标</th>
+            <th className="px-3 py-3 w-10 text-center font-medium">
+              <button
+                onClick={onToggleStarSort}
+                title={starSortActive ? '星标客户优先中，点击还原排序' : '将星标客户排到最前'}
+                aria-label={starSortActive ? '取消星标优先排序' : '星标客户优先排序'}
+                className={`inline-flex items-center justify-center p-1.5 rounded-md transition-colors hover:bg-muted ${
+                  starSortActive ? 'bg-amber-100 dark:bg-amber-950/40' : ''
+                }`}
+              >
+                <Star
+                  className={`h-4 w-4 ${
+                    starSortActive
+                      ? 'fill-amber-400 text-amber-400'
+                      : 'text-muted-foreground/60'
+                  }`}
+                />
+                {starSortActive && <span className="ml-1 text-xs text-amber-600 dark:text-amber-400">优先</span>}
+              </button>
+            </th>
             <th className="px-3 py-3 text-left font-medium">
               <SortButton label="公司名称" active={sortBy === 'company'} asc={sortAsc} onClick={() => onSort('company')} />
             </th>

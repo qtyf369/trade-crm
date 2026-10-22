@@ -18,9 +18,19 @@ input[type="checkbox"] {
   flex-shrink: 0;
 }
 
+.dark input[type="checkbox"] {
+  border-color: #4b5563;
+  background-color: hsl(222 32% 16%);
+}
+
 input[type="checkbox"]:hover {
   border-color: #9ca3af;
   background-color: #f9fafb;
+}
+
+.dark input[type="checkbox"]:hover {
+  border-color: #6b7280;
+  background-color: hsl(222 32% 20%);
 }
 
 input[type="checkbox"]:checked {
