@@ -23,7 +23,7 @@ import BatchExportDialog from './components/BatchExportDialog';
 import FilterPanel from './components/FilterPanel';
 import SyncSettingsDialog from './components/SyncSettingsDialog';
 
-type SortKey = 'company' | 'country' | 'level' | 'status' | 'last_followup_at' | 'created_at';
+type SortKey = 'company' | 'country' | 'level' | 'status' | 'source' | 'last_followup_at' | 'created_at';
 
 const emptyCustomer = {
   company: '',
@@ -399,9 +399,8 @@ export default function CustomersPage() {
               variant="outline"
               size="sm"
               onClick={() => {
-                // 点击"查看"直接筛选出有数据问题的客户
+                // 点击"查看"直接在列表中筛出问题客户
                 setIssuesOnly(true);
-                setShowFilterPanel(true);
                 setPage(1);
               }}
             >
@@ -460,6 +459,7 @@ export default function CustomersPage() {
           items={items}
           loading={loading}
           now={now}
+          startIndex={(page - 1) * pageSize}
           batchMode={batchMode}
           selected={selected}
           setSelected={setSelected}

@@ -6,12 +6,14 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 
-export type SortKey = 'company' | 'country' | 'level' | 'status' | 'last_followup_at' | 'created_at';
+export type SortKey = 'company' | 'country' | 'level' | 'status' | 'source' | 'last_followup_at' | 'created_at';
 
 interface Props {
   items: ICustomer[];
   loading: boolean;
   now: number;
+  /** 当前页第一行的全局序号（(page-1)*pageSize），用于显示连续序号 */
+  startIndex: number;
   batchMode: boolean;
   selected: Set<string>;
   setSelected: (fn: (prev: Set<string>) => Set<string>) => void;
@@ -36,7 +38,7 @@ function SortButton({
 }
 
 export default function CustomerTable({
-  items, loading, now, batchMode, selected, setSelected,
+  items, loading, now, startIndex, batchMode, selected, setSelected,
   sortBy, sortAsc, onSort, onEdit, onDelete, onStar, onOpen,
 }: Props) {
   const allChecked = items.length > 0 && items.every((c) => selected.has(c.id));
@@ -69,6 +71,7 @@ export default function CustomerTable({
                 <Checkbox checked={allChecked} onCheckedChange={toggleAll} aria-label="全选" />
               </th>
             )}
+            <th className="px-3 py-3 w-10 text-center font-medium">序号</th>
             <th className="px-3 py-3 w-10 text-center">星标</th>
             <th className="px-3 py-3 text-left font-medium">
               <SortButton label="公司名称" active={sortBy === 'company'} asc={sortAsc} onClick={() => onSort('company')} />
@@ -77,7 +80,9 @@ export default function CustomerTable({
             <th className="px-3 py-3 text-left font-medium">
               <SortButton label="国家" active={sortBy === 'country'} asc={sortAsc} onClick={() => onSort('country')} />
             </th>
-            <th className="px-3 py-3 text-left font-medium">来源</th>
+            <th className="px-3 py-3 text-left font-medium">
+              <SortButton label="来源" active={sortBy === 'source'} asc={sortAsc} onClick={() => onSort('source')} />
+            </th>
             <th className="px-3 py-3 text-left font-medium">
               <SortButton label="等级" active={sortBy === 'level'} asc={sortAsc} onClick={() => onSort('level')} />
             </th>
@@ -93,12 +98,12 @@ export default function CustomerTable({
         <tbody className={loading ? 'opacity-50 transition-opacity' : 'transition-opacity'}>
           {items.length === 0 ? (
             <tr>
-              <td colSpan={batchMode ? 10 : 9} className="text-center py-12 text-muted-foreground">
+              <td colSpan={batchMode ? 11 : 10} className="text-center py-12 text-muted-foreground">
                 没有找到匹配的客户
               </td>
             </tr>
           ) : (
-            items.map((c) => {
+            items.map((c, idx) => {
               const issues = parseIssues(c.data_issues);
               const hasIssue = issues.length > 0;
               const daysSince = c.last_followup_at
@@ -129,6 +134,9 @@ export default function CustomerTable({
                       />
                     </td>
                   )}
+                  <td className="px-3 py-3 text-center text-muted-foreground tabular-nums">
+                    {startIndex + idx + 1}
+                  </td>
                   <td className="px-3 py-3 text-center">
                     <button onClick={() => onStar(c)} className="p-1 hover:bg-muted rounded" aria-label="星标">
                       <Star
