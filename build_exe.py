@@ -76,23 +76,35 @@ EXCLUDES = [
 README_TEXT = """外贸 CRM  使用说明
 ================================================
 
-【第一次用】就三步
+【第一次用】三步
     1. 双击「启动外贸CRM.exe」
     2. 等 2 秒，浏览器会自动打开
-    3. 直接用（客户数据会自动从云端同步下来）
+    3. 直接开始用（首次打开是空白账本，可先录入自己的客户）
 
-    就这样，不用注册、不用登录、不用设置任何东西。
-
-    以后想再打开：双击桌面上的「外贸CRM」图标即可
+    以后想再打开：双击桌面上的「外贸CRM」图标
     （第一次启动时会自动帮你创建）。
 
 
+【想要多台电脑同步】绑定自己的坚果云
+    1. 点左上角头像 →「绑定坚果云账号」
+    2. 填入你自己的坚果云邮箱和应用密码
+       应用密码在坚果云网页：账户信息 → 安全选项 → 添加应用 → 生成密码
+    3. 保存后点「同步数据」，选择：
+         · 融合   —— 两端数据合并，都不会丢（推荐）
+         · 以本地为准 —— 用本机的覆盖云端
+         · 以云端为准 —— 用云端的覆盖本机
+
+    绑定之后，各台电脑的改动会自动同步，不用再手动操作。
+
+
 【数据在哪】
-    就在本文件夹的 data 文件夹里。整个文件夹拷走 = 完整备份。
+    就在本文件夹的 data 文件夹里。
+    整个文件夹拷走 = 完整备份。
 
 
 【换电脑】
-    把整个文件夹复制到新电脑，双击启动，数据自动同步。
+    把整个文件夹复制到新电脑，双击启动，
+    再绑定同一个坚果云账号、点「融合」即可。
 
 
 【更新版本】
@@ -182,27 +194,15 @@ def main() -> None:
     if os.path.exists(src_exe):
         os.replace(src_exe, os.path.join(app_dir, "启动外贸CRM.exe"))
 
-    # 预置坚果云配置：随包分发，用户解压后无需再手动绑定
-    src_cfg = os.path.join(BASE, "config.json")
-    if os.path.exists(src_cfg):
-        import json as _json
-        try:
-            with open(src_cfg, "r", encoding="utf-8-sig") as f:
-                cfg = _json.load(f)
-            preset = {
-                "webdav_url": cfg.get("webdav_url", ""),
-                "webdav_user": cfg.get("webdav_user", ""),
-                "webdav_pass": cfg.get("webdav_pass", ""),
-                "auto_sync": True,
-            }
-            # 放到 data 目录：首次启动即视为已绑定，自动拉取云端数据
-            preset_dir = os.path.join(app_dir, "data")
-            os.makedirs(preset_dir, exist_ok=True)
-            with open(os.path.join(preset_dir, "config.json"), "w", encoding="utf-8") as f:
-                _json.dump(preset, f, ensure_ascii=False, indent=2)
-            print("  已预置坚果云配置（用户无需手动绑定）")
-        except Exception as e:
-            print(f"  警告：预置配置失败 {e}")
+    # 安全：绝不能把开发者的坚果云账号密码打进发布包。
+    # 每个用户首次启动都是全新空白账本（离线），绑定自己的坚果云后再同步。
+    leaked = os.path.join(app_dir, "data", "config.json")
+    if os.path.exists(leaked):
+        os.remove(leaked)
+    # 同时清理任何残留的用户数据，确保发布包干净
+    stale_data = os.path.join(app_dir, "data")
+    if os.path.isdir(stale_data) and not os.listdir(stale_data):
+        os.rmdir(stale_data)
 
     # 放入使用说明
     readme = os.path.join(app_dir, "使用说明.txt")
@@ -223,6 +223,18 @@ def main() -> None:
             "pause\r\n"
         ).encode("gbk", errors="replace"))
 
+    # 发布前安全审计：确保包里不含任何个人凭据或历史数据
+    forbidden = ["config.json", "trade_crm.db", "ui_settings.json", "sync_state.json", "profile.json"]
+    hits = []
+    for r, _, fs in os.walk(app_dir):
+        for fn in fs:
+            if fn in forbidden:
+                hits.append(os.path.join(r, fn))
+    if hits:
+        sys.exit(
+            "打包中止：发布包中检测到个人数据，请勿分发！\n  " + "\n  ".join(hits)
+        )
+
     total = sum(
         os.path.getsize(os.path.join(r, fn))
         for r, _, fs in os.walk(app_dir) for fn in fs
@@ -231,11 +243,12 @@ def main() -> None:
     print("打包完成（绿色版文件夹）！")
     print(f"  目录：{app_dir}")
     print(f"  体积：{total / (1024 * 1024):.1f} MB")
+    print("  安全审计：通过（不含账号密码与任何历史数据）")
     print()
     print("分发方式：")
     print("  1) 把整个文件夹压缩成 zip 发给对方；")
     print("  2) 对方解压到任意位置，双击「启动外贸CRM.exe」即可使用；")
-    print("  3) 数据保存在文件夹内 data 子目录，整个文件夹可拷贝备份。")
+    print("  3) 首次打开是空白账本，绑定自己的坚果云后才多端同步。")
     print()
     print("如需单个 exe： python build_exe.py --onefile")
 
