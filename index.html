@@ -1,11 +1,72 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>外贸 CRM</title>
+    <style>
+      /* 启动兜底提示：正常渲染时会被 React 覆盖 */
+      #boot-fallback {
+        display: none;
+        font-family: -apple-system, "Microsoft YaHei", system-ui, sans-serif;
+        max-width: 640px;
+        margin: 12vh auto;
+        padding: 0 24px;
+        color: #1f2937;
+        line-height: 1.7;
+      }
+      #boot-fallback h1 { font-size: 20px; margin-bottom: 12px; }
+      #boot-fallback p { font-size: 15px; margin: 8px 0; color: #4b5563; }
+      #boot-fallback code {
+        background: #f3f4f6; padding: 2px 6px; border-radius: 4px;
+        font-size: 13px; color: #111827;
+      }
+      #boot-fallback .tip {
+        margin-top: 18px; padding: 12px 14px; background: #fef3c7;
+        border-left: 4px solid #f59e0b; border-radius: 6px; font-size: 14px;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
+
+    <!-- 若 8 秒后仍未渲染出内容，展示可读的排障提示，避免白屏 -->
+    <div id="boot-fallback">
+      <h1>页面没有正常显示</h1>
+      <p>当前浏览器可能版本过旧或配置异常，导致无法加载本系统。</p>
+      <p>请用 <strong>Google Chrome</strong> 或较新版本的 <strong>Microsoft Edge</strong> 打开下面的地址：</p>
+      <p><code id="boot-url"></code></p>
+      <div class="tip">
+        如果使用 Edge 仍打不开，请尝试：<br />
+        1. 复制上面的地址，粘贴到 Chrome 地址栏打开；<br />
+        2. 或右键桌面快捷方式 → 打开方式 → 选择 Chrome。
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        document.getElementById('boot-url').textContent = location.origin;
+
+        var shown = false;
+        function showFallback() {
+          if (shown) return;
+          var root = document.getElementById('root');
+          // 已经有内容说明渲染成功，不打扰
+          if (root && root.children.length > 0) return;
+          shown = true;
+          document.getElementById('boot-fallback').style.display = 'block';
+        }
+
+        // 主路径：脚本加载/执行失败时立即提示
+        window.addEventListener('error', function (e) {
+          if (e && e.target && e.target.tagName === 'SCRIPT') showFallback();
+        }, true);
+
+        // 兜底：8 秒仍是空页面则提示
+        setTimeout(showFallback, 8000);
+      })();
+    </script>
+
     <script type="module" src="/src/index.tsx"></script>
   </body>
 </html>

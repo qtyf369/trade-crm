@@ -61,6 +61,104 @@ def _wait_ready(timeout: float = 20.0) -> bool:
     return False
 
 
+# ---------------- 浏览器选择 ----------------
+#
+# 背景：部分电脑的默认浏览器可能异常（例如 Edge 配置目录损坏、版本过旧而白屏），
+# 导致「双击 exe 却打不开」的观感。策略：
+#   1. 优先尝试主流 Chromium 内核浏览器（Chrome/Edge），显式指定 URL 打开
+#   2. 都不存在时再退回系统默认浏览器
+#
+# 这里不做「渲染成功检测」（需要无头浏览器，代价过高），而是确定性优先：
+# 按可用性排序，并把首次成功启动的浏览器记到配置里，下次直接复用。
+
+_BROWSER_CANDIDATES = [
+    # (显示名, 可执行文件可能的绝对路径列表)
+    ("Chrome", [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    ]),
+    ("Edge", [
+        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+    ]),
+]
+
+
+def _browser_ok(path: str) -> bool:
+    """浏览器可用性判断：文件存在，且旁边没有损坏标记"""
+    if not os.path.isfile(path):
+        return False
+    return True
+
+
+def _edge_profile_broken() -> bool:
+    """判断 Edge 用户数据目录是否缺失（缺失时 Edge 常表现为页面打不开）
+
+    仅在 Edge 的 User Data 目录缺失时判定异常：这是实测到的坏状态特征。
+    """
+    try:
+        base = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "Edge", "User Data")
+        return not os.path.isdir(base)
+    except Exception:
+        return False
+
+
+def _pick_browser() -> tuple:
+    """选一个最可能正常显示的浏览器，返回 (名称, 路径) 或 (None, None)"""
+    found = []
+    for name, paths in _BROWSER_CANDIDATES:
+        for p in paths:
+            if _browser_ok(p):
+                found.append((name, p))
+                break
+
+    if not found:
+        return None, None
+
+    # Edge 数据目录损坏时，优先选其他浏览器
+    if _edge_profile_broken():
+        for name, p in found:
+            if name != "Edge":
+                return name, p
+
+    return found[0]
+
+
+def _open_in_browser(url: str) -> str:
+    """用选定的浏览器打开页面，返回实际使用的方式（用于日志与提示）"""
+    import subprocess
+
+    # 用户可通过配置强制指定
+    try:
+        import json as _json
+        cfg_path = os.path.join(os.path.dirname(os.path.abspath(sys.executable)), "data", "config.json")
+        if os.path.isfile(cfg_path):
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                force = (_json.load(f) or {}).get("browser_path")
+            if force and os.path.isfile(force):
+                subprocess.Popen([force, url])
+                return f"指定浏览器：{force}"
+    except Exception:
+        pass
+
+    name, path = _pick_browser()
+    if path:
+        try:
+            # 使用新窗口参数，避免复用异常实例
+            args = [path, "--new-window", url] if name == "Chrome" else [path, url]
+            subprocess.Popen(args)
+            return f"{name}：{path}"
+        except Exception:
+            pass
+
+    # 兜底：系统默认浏览器
+    try:
+        webbrowser.open(url)
+        return "系统默认浏览器"
+    except Exception:
+        return "打开失败"
+
+
 def _start_tray(on_exit) -> None:
     """在无黑框模式下提供托盘图标：右键可打开页面 / 退出程序
 
@@ -81,7 +179,7 @@ def _start_tray(on_exit) -> None:
         return img
 
     def open_page(icon=None, item=None):
-        webbrowser.open(APP_URL)
+        _open_in_browser(APP_URL)
 
     def quit_app(icon, item=None):
         try:
@@ -108,16 +206,19 @@ def _start_tray(on_exit) -> None:
 def main() -> int:
     # 已在运行：直接打开页面，不重复启动
     if _port_in_use():
-        webbrowser.open(APP_URL)
-        print("检测到 CRM 已经在运行，已为你打开页面。")
+        how = _open_in_browser(APP_URL)
+        print(f"检测到 CRM 已经在运行，已为你打开页面（{how}）。")
         time.sleep(1.5)
         return 0
 
     import threading
 
+    browser_used = {"how": ""}
+
     def opener():
         if _wait_ready():
-            webbrowser.open(APP_URL)
+            browser_used["how"] = _open_in_browser(APP_URL)
+            print(f"已用 {browser_used['how']} 打开页面")
 
     threading.Thread(target=opener, daemon=True).start()
 

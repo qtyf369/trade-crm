@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 
@@ -21,13 +21,13 @@ export const COLOR_SCHEME_META: Record<ColorScheme, { label: string; emoji: stri
 
 export const COLOR_SCHEMES: ColorScheme[] = ['ocean', 'emerald', 'rose', 'amber', 'violet', 'celadon'];
 
-const MODE_KEY = 'crm-theme';
-const SCHEME_KEY = 'crm-color-scheme';
-const ZOOM_KEY = 'crm-ui-zoom';
-
 /** 可选界面缩放比例（%） */
 export const ZOOM_LEVELS = [100, 90, 80, 75, 67, 50] as const;
 export type ZoomLevel = typeof ZOOM_LEVELS[number];
+
+const MODE_KEY = 'crm-theme';
+const SCHEME_KEY = 'crm-color-scheme';
+const ZOOM_KEY = 'crm-ui-zoom';
 
 function resolve(mode: ThemeMode): 'light' | 'dark' {
   if (mode === 'system') {
@@ -42,7 +42,6 @@ function applyMode(resolved: 'light' | 'dark') {
 }
 
 function applyScheme(scheme: ColorScheme) {
-  // 移除旧的配色 data 属性，设置新的
   document.documentElement.setAttribute('data-color-scheme', scheme);
 }
 
@@ -64,6 +63,21 @@ function applyZoom(percent: number) {
   root.setAttribute('data-ui-zoom', String(percent));
 }
 
+/** 把设置推送到后端（本地必定落盘，已绑定时同步到坚果云） */
+function pushSettings(payload: { mode?: ThemeMode; scheme?: ColorScheme; zoom?: number }) {
+  const merged = {
+    mode: payload.mode ?? (localStorage.getItem(MODE_KEY) as ThemeMode) ?? 'system',
+    scheme: payload.scheme ?? (localStorage.getItem(SCHEME_KEY) as ColorScheme) ?? 'ocean',
+    zoom: payload.zoom ?? Number(localStorage.getItem(ZOOM_KEY) || 100),
+  };
+  // 失败静默：本地已保存，不打扰用户
+  fetch('/api/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ settings: merged }),
+  }).catch(() => {});
+}
+
 export function useTheme() {
   const [mode, setMode] = useState<ThemeMode>(() => {
     const saved = localStorage.getItem(MODE_KEY);
@@ -80,6 +94,37 @@ export function useTheme() {
     return ZOOM_LEVELS.includes(saved as ZoomLevel) ? saved : 100;
   });
 
+  /** 云端设置是否已合并过，避免重复请求 */
+  const pulled = useRef(false);
+
+  // 启动时拉取云端设置（本地已有值也覆盖，云端为跨设备权威）
+  useEffect(() => {
+    if (pulled.current) return;
+    pulled.current = true;
+    let alive = true;
+    fetch('/api/settings')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((res) => {
+        if (!alive || !res || !res.settings) return;
+        const s = res.settings;
+        if (s.mode === 'light' || s.mode === 'dark' || s.mode === 'system') {
+          localStorage.setItem(MODE_KEY, s.mode);
+          setMode(s.mode);
+        }
+        if (COLOR_SCHEMES.includes(s.scheme)) {
+          localStorage.setItem(SCHEME_KEY, s.scheme);
+          setScheme(s.scheme);
+        }
+        const z = Number(s.zoom);
+        if (ZOOM_LEVELS.includes(z as ZoomLevel)) {
+          localStorage.setItem(ZOOM_KEY, String(z));
+          setZoom(z);
+        }
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
   // 应用 mode + 跟随系统变化
   useEffect(() => {
     applyMode(resolve(mode));
@@ -89,30 +134,26 @@ export function useTheme() {
     return () => mq.removeEventListener('change', onChange);
   }, [mode]);
 
-  // 应用配色方案
-  useEffect(() => {
-    applyScheme(scheme);
-  }, [scheme]);
-
-  // 应用界面缩放
-  useEffect(() => {
-    applyZoom(zoom);
-  }, [zoom]);
+  useEffect(() => { applyScheme(scheme); }, [scheme]);
+  useEffect(() => { applyZoom(zoom); }, [zoom]);
 
   const changeMode = useCallback((next: ThemeMode) => {
     localStorage.setItem(MODE_KEY, next);
     setMode(next);
+    pushSettings({ mode: next });
   }, []);
 
   const changeScheme = useCallback((next: ColorScheme) => {
     localStorage.setItem(SCHEME_KEY, next);
     setScheme(next);
+    pushSettings({ scheme: next });
   }, []);
 
   const changeZoom = useCallback((next: number) => {
     if (!ZOOM_LEVELS.includes(next as ZoomLevel)) return;
     localStorage.setItem(ZOOM_KEY, String(next));
     setZoom(next);
+    pushSettings({ zoom: next });
   }, []);
 
   return {

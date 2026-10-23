@@ -507,6 +507,11 @@ class SyncResolve(BaseModel):
     choice: str = Field(..., description="local | remote | merge")
 
 
+class SettingsPayload(BaseModel):
+    """界面偏好（主题模式、配色方案、缩放比例等），键值任意"""
+    settings: Dict[str, Any] = Field(default_factory=dict)
+
+
 # ---------- 自动备份 ----------
 
 def auto_backup() -> Dict[str, Any]:
@@ -2122,6 +2127,105 @@ def fix_countries():
         migrate_countries(db)
         after = db.execute("SELECT COUNT(*) FROM customers").fetchone()[0]
     return {"ok": True, "fixed": before, "remaining": after}
+
+
+# ---------- 界面偏好设置（主题/配色/缩放）同步 ----------
+# 策略：本地始终保存一份（离线可用），已绑定坚果云时同时写入 timezone 无关的云端
+# settings.json，实现多端一致。读取时以「更新时间较新」的一方为准。
+
+SETTINGS_PATH = os.path.join(BASE_DIR, "ui_settings.json")
+
+
+def _remote_settings_url(config: Dict[str, Any]) -> str:
+    return f"{config['webdav_url']}/crm/settings.json"
+
+
+def _read_local_settings() -> Dict[str, Any]:
+    try:
+        with open(SETTINGS_PATH, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            if isinstance(data, dict):
+                return data
+    except (OSError, ValueError):
+        pass
+    return {}
+
+
+def _write_local_settings(data: Dict[str, Any]) -> None:
+    try:
+        with open(SETTINGS_PATH, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except OSError:
+        pass
+
+
+@app.get("/api/settings")
+def get_settings():
+    """读取界面偏好：合并本地与云端，取 updated_at 较新者
+
+    返回 { settings: {...}, source: 'local'|'remote'|'default', bound: bool }
+    """
+    local = _read_local_settings()
+    config = load_config()
+    bound = bool(config.get("webdav_url") and config.get("webdav_user") and config.get("webdav_pass"))
+    if not bound:
+        return {"settings": local, "source": "local" if local else "default", "bound": False}
+
+    remote: Dict[str, Any] = {}
+    try:
+        import requests
+        res = requests.get(_remote_settings_url(config),
+                           auth=(config['webdav_user'], config['webdav_pass']), timeout=10)
+        if res.status_code == 200:
+            parsed = res.json()
+            if isinstance(parsed, dict):
+                remote = parsed
+    except Exception:
+        # 云端不可达：回退本地，保证离线可用
+        return {"settings": local, "source": "local" if local else "default",
+                "bound": True, "offline": True}
+
+    def ts(d: Dict[str, Any]) -> int:
+        try:
+            return int(d.get("updated_at") or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    if remote and ts(remote) >= ts(local):
+        # 云端更新：回写本地缓存，保证下次离线也能用
+        _write_local_settings(remote)
+        return {"settings": remote, "source": "remote", "bound": True}
+    if local:
+        return {"settings": local, "source": "local", "bound": True}
+    return {"settings": {}, "source": "default", "bound": True}
+
+
+@app.post("/api/settings")
+def save_settings(payload: SettingsPayload):
+    """保存界面偏好：先写本地（必定成功），已绑定时再上传云端"""
+    import time as _time
+    data = dict(payload.settings or {})
+    data["updated_at"] = int(_time.time())
+    _write_local_settings(data)
+
+    config = load_config()
+    if not (config.get("webdav_url") and config.get("webdav_user") and config.get("webdav_pass")):
+        return {"ok": True, "synced": False, "reason": "unbound"}
+
+    try:
+        import requests
+        requests.request('MKCOL', f"{config['webdav_url']}/crm/",
+                         auth=(config['webdav_user'], config['webdav_pass']), timeout=10)
+        body = json.dumps(data, ensure_ascii=False).encode('utf-8')
+        res = requests.put(_remote_settings_url(config), data=body,
+                           auth=(config['webdav_user'], config['webdav_pass']),
+                           headers={"Content-Type": "application/json"}, timeout=15)
+        if res.status_code not in (200, 201, 204):
+            return {"ok": True, "synced": False, "reason": f"HTTP {res.status_code}"}
+        return {"ok": True, "synced": True}
+    except Exception as e:
+        # 云端失败不影响本地保存，下次改动会重试
+        return {"ok": True, "synced": False, "reason": str(e)}
 
 
 # ---------- 后台自动同步 ----------

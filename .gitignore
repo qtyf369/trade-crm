@@ -113,3 +113,5 @@ sync_state.json
 
 # 临时/缓存
 .tmp/
+# 界面偏好本地缓存
+ui_settings.json
