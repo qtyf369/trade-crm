@@ -67,9 +67,9 @@ export default function CustomerTable({
   };
 
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto flex-1 min-h-0 overflow-y-auto">
       <table className="w-full text-sm">
-        <thead>
+        <thead className="sticky top-0 z-[2] bg-card">
           <tr className="border-b border-border text-muted-foreground">
             {batchMode && (
               <th className="px-3 py-3 w-10">
@@ -140,12 +140,12 @@ export default function CustomerTable({
                 <tr
                   key={c.id}
                   className={
-                    'border-b border-border/50 ' +
+                    'border-b border-border/50 transition-colors duration-150 ' +
                     (hasIssue
-                      ? 'bg-red-100/80 dark:bg-red-950/30 border-l-4 border-l-red-500'
+                      ? 'bg-red-100/80 dark:bg-red-950/30 border-l-4 border-l-red-500 hover:bg-red-200/70 dark:hover:bg-red-950/40'
                       : stale
-                        ? 'bg-amber-50/60 dark:bg-amber-950/20'
-                        : 'hover:bg-muted/40')
+                        ? 'bg-amber-50/60 dark:bg-amber-950/20 hover:bg-amber-100/50 dark:hover:bg-amber-950/30'
+                        : 'hover:bg-primary/8')
                   }
                 >
                   {batchMode && (
@@ -161,7 +161,7 @@ export default function CustomerTable({
                     {startIndex + idx + 1}
                   </td>
                   <td className="px-3 py-3 text-center">
-                    <button onClick={() => onStar(c)} className="p-1 hover:bg-muted rounded" aria-label="星标">
+                    <button onClick={() => onStar(c)} className="p-1 hover:bg-primary/10 rounded transition-colors duration-150" aria-label="星标">
                       <Star
                         className={`h-4 w-4 ${c.starred ? 'fill-amber-400 text-amber-400' : 'text-gray-300'}`}
                       />
@@ -170,7 +170,7 @@ export default function CustomerTable({
                   <td className="px-3 py-3">
                     <button
                       onClick={() => onOpen(c.id)}
-                      className="block max-w-[220px] truncate text-primary hover:underline text-left font-medium"
+                      className="block max-w-[220px] truncate text-primary text-left font-medium rounded px-1 -mx-1 py-0.5 -my-0.5 hover:bg-primary/10 hover:text-primary transition-colors duration-150"
                     >
                       {c.company}
                     </button>

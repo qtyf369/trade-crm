@@ -144,6 +144,282 @@
   --shadow-color: #000000;
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   配色方案：通过 data-color-scheme 属性切换 primary / sidebar 等色值
+   每套方案同时微调 secondary / muted / border / accent，
+   使切换主题时整个页面色温有明显变化
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* 翡翠绿 ─────────────────────────── */
+[data-color-scheme="emerald"] {
+  --primary: hsl(160 84% 35%);
+  --primary-foreground: hsl(160 14% 98%);
+  --ring: hsl(160 84% 45%);
+  --secondary: hsl(160 14% 96%);
+  --muted: hsl(160 10% 96%);
+  --border: hsl(160 14% 89%);
+  --input: hsl(160 14% 89%);
+  --card-border: hsl(160 14% 89%);
+  --accent: hsl(160 60% 44%);
+  --accent-foreground: hsl(0 0% 100%);
+  --info: hsl(160 84% 45%);
+  --info-foreground: hsl(160 100% 97%);
+  --chart-1: hsl(160 84% 35%);
+  --chart-2: hsl(174 77% 46%);
+  --chart-4: hsl(130 54% 42%);
+  --sidebar: hsl(160 47% 11%);
+  --sidebar-foreground: hsl(150 40% 96%);
+  --sidebar-primary: hsl(160 84% 35%);
+  --sidebar-primary-foreground: hsl(0 0% 100%);
+  --sidebar-accent: hsl(160 60% 20%);
+  --sidebar-accent-foreground: hsl(150 40% 96%);
+  --sidebar-border: hsl(160 47% 18%);
+  --sidebar-ring: hsl(160 84% 35%);
+  --primary-border: hsl(from hsl(160 84% 45%) h s calc(l + var(--opaque-button-border-intensity)));
+}
+[data-color-scheme="emerald"].dark {
+  --primary: hsl(160 84% 50%);
+  --primary-foreground: hsl(160 14% 98%);
+  --ring: hsl(160 84% 50%);
+  --secondary: hsl(160 32% 16%);
+  --muted: hsl(160 32% 14%);
+  --border: hsl(160 30% 20%);
+  --input: hsl(160 30% 20%);
+  --card-border: hsl(160 30% 20%);
+  --accent: hsl(160 40% 22%);
+  --accent-foreground: hsl(150 40% 96%);
+  --info: hsl(160 84% 55%);
+  --info-foreground: hsl(160 100% 97%);
+  --chart-1: hsl(160 84% 50%);
+  --chart-2: hsl(174 60% 55%);
+  --chart-4: hsl(130 54% 52%);
+  --sidebar: hsl(160 47% 7%);
+  --sidebar-foreground: hsl(150 40% 96%);
+  --sidebar-primary: hsl(160 84% 50%);
+  --sidebar-primary-foreground: hsl(0 0% 100%);
+  --sidebar-accent: hsl(160 40% 18%);
+  --sidebar-accent-foreground: hsl(150 40% 96%);
+  --sidebar-border: hsl(160 47% 15%);
+  --sidebar-ring: hsl(160 84% 50%);
+  --primary-border: hsl(from hsl(160 84% 50%) h s calc(l + var(--opaque-button-border-intensity)));
+}
+
+/* 玫瑰红 ─────────────────────────── */
+[data-color-scheme="rose"] {
+  --primary: hsl(346 77% 42%);
+  --primary-foreground: hsl(346 14% 98%);
+  --ring: hsl(346 77% 52%);
+  --secondary: hsl(346 14% 96%);
+  --muted: hsl(346 10% 96%);
+  --border: hsl(346 14% 89%);
+  --input: hsl(346 14% 89%);
+  --card-border: hsl(346 14% 89%);
+  --accent: hsl(346 60% 50%);
+  --accent-foreground: hsl(0 0% 100%);
+  --info: hsl(346 77% 52%);
+  --info-foreground: hsl(346 100% 97%);
+  --chart-1: hsl(346 77% 42%);
+  --chart-2: hsl(32 95% 44%);
+  --chart-4: hsl(326 52% 47%);
+  --sidebar: hsl(346 47% 11%);
+  --sidebar-foreground: hsl(340 40% 96%);
+  --sidebar-primary: hsl(346 77% 42%);
+  --sidebar-primary-foreground: hsl(0 0% 100%);
+  --sidebar-accent: hsl(346 60% 20%);
+  --sidebar-accent-foreground: hsl(340 40% 96%);
+  --sidebar-border: hsl(346 47% 18%);
+  --sidebar-ring: hsl(346 77% 42%);
+  --primary-border: hsl(from hsl(346 77% 52%) h s calc(l + var(--opaque-button-border-intensity)));
+}
+[data-color-scheme="rose"].dark {
+  --primary: hsl(346 77% 58%);
+  --primary-foreground: hsl(346 14% 98%);
+  --ring: hsl(346 77% 58%);
+  --secondary: hsl(346 32% 16%);
+  --muted: hsl(346 32% 14%);
+  --border: hsl(346 30% 20%);
+  --input: hsl(346 30% 20%);
+  --card-border: hsl(346 30% 20%);
+  --accent: hsl(346 40% 22%);
+  --accent-foreground: hsl(340 40% 96%);
+  --info: hsl(346 77% 63%);
+  --info-foreground: hsl(346 100% 97%);
+  --chart-1: hsl(346 77% 58%);
+  --chart-2: hsl(32 95% 55%);
+  --chart-4: hsl(326 52% 62%);
+  --sidebar: hsl(346 47% 7%);
+  --sidebar-foreground: hsl(340 40% 96%);
+  --sidebar-primary: hsl(346 77% 58%);
+  --sidebar-primary-foreground: hsl(0 0% 100%);
+  --sidebar-accent: hsl(346 40% 18%);
+  --sidebar-accent-foreground: hsl(340 40% 96%);
+  --sidebar-border: hsl(346 47% 15%);
+  --sidebar-ring: hsl(346 77% 58%);
+  --primary-border: hsl(from hsl(346 77% 58%) h s calc(l + var(--opaque-button-border-intensity)));
+}
+
+/* 琥珀金 ─────────────────────────── */
+[data-color-scheme="amber"] {
+  --primary: hsl(38 92% 40%);
+  --primary-foreground: hsl(38 14% 98%);
+  --ring: hsl(38 92% 50%);
+  --secondary: hsl(38 14% 96%);
+  --muted: hsl(38 10% 96%);
+  --border: hsl(38 14% 89%);
+  --input: hsl(38 14% 89%);
+  --card-border: hsl(38 14% 89%);
+  --accent: hsl(38 92% 50%);
+  --accent-foreground: hsl(0 0% 100%);
+  --info: hsl(38 92% 50%);
+  --info-foreground: hsl(38 100% 97%);
+  --chart-1: hsl(38 92% 40%);
+  --chart-2: hsl(26 90% 49%);
+  --chart-4: hsl(16 80% 45%);
+  --sidebar: hsl(38 47% 11%);
+  --sidebar-foreground: hsl(36 40% 96%);
+  --sidebar-primary: hsl(38 92% 40%);
+  --sidebar-primary-foreground: hsl(0 0% 100%);
+  --sidebar-accent: hsl(38 60% 20%);
+  --sidebar-accent-foreground: hsl(36 40% 96%);
+  --sidebar-border: hsl(38 47% 18%);
+  --sidebar-ring: hsl(38 92% 40%);
+  --primary-border: hsl(from hsl(38 92% 50%) h s calc(l + var(--opaque-button-border-intensity)));
+}
+[data-color-scheme="amber"].dark {
+  --primary: hsl(38 92% 55%);
+  --primary-foreground: hsl(38 14% 98%);
+  --ring: hsl(38 92% 55%);
+  --secondary: hsl(38 32% 16%);
+  --muted: hsl(38 32% 14%);
+  --border: hsl(38 30% 20%);
+  --input: hsl(38 30% 20%);
+  --card-border: hsl(38 30% 20%);
+  --accent: hsl(38 40% 22%);
+  --accent-foreground: hsl(36 40% 96%);
+  --info: hsl(38 92% 60%);
+  --info-foreground: hsl(38 100% 97%);
+  --chart-1: hsl(38 92% 55%);
+  --chart-2: hsl(26 90% 55%);
+  --chart-4: hsl(16 80% 55%);
+  --sidebar: hsl(38 47% 7%);
+  --sidebar-foreground: hsl(36 40% 96%);
+  --sidebar-primary: hsl(38 92% 55%);
+  --sidebar-primary-foreground: hsl(0 0% 100%);
+  --sidebar-accent: hsl(38 40% 18%);
+  --sidebar-accent-foreground: hsl(36 40% 96%);
+  --sidebar-border: hsl(38 47% 15%);
+  --sidebar-ring: hsl(38 92% 55%);
+  --primary-border: hsl(from hsl(38 92% 55%) h s calc(l + var(--opaque-button-border-intensity)));
+}
+
+/* 薰衣紫 ─────────────────────────── */
+[data-color-scheme="violet"] {
+  --primary: hsl(262 52% 47%);
+  --primary-foreground: hsl(262 14% 98%);
+  --ring: hsl(262 52% 57%);
+  --secondary: hsl(262 14% 96%);
+  --muted: hsl(262 10% 96%);
+  --border: hsl(262 14% 89%);
+  --input: hsl(262 14% 89%);
+  --card-border: hsl(262 14% 89%);
+  --accent: hsl(282 52% 47%);
+  --accent-foreground: hsl(0 0% 100%);
+  --info: hsl(262 52% 57%);
+  --info-foreground: hsl(262 100% 97%);
+  --chart-1: hsl(262 52% 47%);
+  --chart-2: hsl(282 52% 47%);
+  --chart-4: hsl(302 52% 47%);
+  --sidebar: hsl(262 47% 11%);
+  --sidebar-foreground: hsl(260 40% 96%);
+  --sidebar-primary: hsl(262 52% 47%);
+  --sidebar-primary-foreground: hsl(0 0% 100%);
+  --sidebar-accent: hsl(262 60% 20%);
+  --sidebar-accent-foreground: hsl(260 40% 96%);
+  --sidebar-border: hsl(262 47% 18%);
+  --sidebar-ring: hsl(262 52% 47%);
+  --primary-border: hsl(from hsl(262 52% 57%) h s calc(l + var(--opaque-button-border-intensity)));
+}
+[data-color-scheme="violet"].dark {
+  --primary: hsl(262 52% 62%);
+  --primary-foreground: hsl(262 14% 98%);
+  --ring: hsl(262 52% 62%);
+  --secondary: hsl(262 32% 16%);
+  --muted: hsl(262 32% 14%);
+  --border: hsl(262 30% 20%);
+  --input: hsl(262 30% 20%);
+  --card-border: hsl(262 30% 20%);
+  --accent: hsl(282 40% 22%);
+  --accent-foreground: hsl(260 40% 96%);
+  --info: hsl(262 52% 67%);
+  --info-foreground: hsl(262 100% 97%);
+  --chart-1: hsl(262 52% 62%);
+  --chart-2: hsl(282 52% 62%);
+  --chart-4: hsl(302 52% 62%);
+  --sidebar: hsl(262 47% 7%);
+  --sidebar-foreground: hsl(260 40% 96%);
+  --sidebar-primary: hsl(262 52% 62%);
+  --sidebar-primary-foreground: hsl(0 0% 100%);
+  --sidebar-accent: hsl(262 40% 18%);
+  --sidebar-accent-foreground: hsl(260 40% 96%);
+  --sidebar-border: hsl(262 47% 15%);
+  --sidebar-ring: hsl(262 52% 62%);
+  --primary-border: hsl(from hsl(262 52% 62%) h s calc(l + var(--opaque-button-border-intensity)));
+}
+
+/* 青瓷 ─────────────────────────── */
+[data-color-scheme="celadon"] {
+  --primary: hsl(174 77% 35%);
+  --primary-foreground: hsl(174 14% 98%);
+  --ring: hsl(174 77% 45%);
+  --secondary: hsl(174 14% 96%);
+  --muted: hsl(174 10% 96%);
+  --border: hsl(174 14% 89%);
+  --input: hsl(174 14% 89%);
+  --card-border: hsl(174 14% 89%);
+  --accent: hsl(174 60% 44%);
+  --accent-foreground: hsl(0 0% 100%);
+  --info: hsl(174 77% 45%);
+  --info-foreground: hsl(174 100% 97%);
+  --chart-1: hsl(174 77% 35%);
+  --chart-2: hsl(194 77% 35%);
+  --chart-4: hsl(154 77% 35%);
+  --sidebar: hsl(174 47% 11%);
+  --sidebar-foreground: hsl(170 40% 96%);
+  --sidebar-primary: hsl(174 77% 35%);
+  --sidebar-primary-foreground: hsl(0 0% 100%);
+  --sidebar-accent: hsl(174 60% 20%);
+  --sidebar-accent-foreground: hsl(170 40% 96%);
+  --sidebar-border: hsl(174 47% 18%);
+  --sidebar-ring: hsl(174 77% 35%);
+  --primary-border: hsl(from hsl(174 77% 45%) h s calc(l + var(--opaque-button-border-intensity)));
+}
+[data-color-scheme="celadon"].dark {
+  --primary: hsl(174 77% 50%);
+  --primary-foreground: hsl(174 14% 98%);
+  --ring: hsl(174 77% 50%);
+  --secondary: hsl(174 32% 16%);
+  --muted: hsl(174 32% 14%);
+  --border: hsl(174 30% 20%);
+  --input: hsl(174 30% 20%);
+  --card-border: hsl(174 30% 20%);
+  --accent: hsl(174 40% 22%);
+  --accent-foreground: hsl(170 40% 96%);
+  --info: hsl(174 77% 55%);
+  --info-foreground: hsl(174 100% 97%);
+  --chart-1: hsl(174 77% 50%);
+  --chart-2: hsl(194 77% 50%);
+  --chart-4: hsl(154 77% 50%);
+  --sidebar: hsl(174 47% 7%);
+  --sidebar-foreground: hsl(170 40% 96%);
+  --sidebar-primary: hsl(174 77% 50%);
+  --sidebar-primary-foreground: hsl(0 0% 100%);
+  --sidebar-accent: hsl(174 40% 18%);
+  --sidebar-accent-foreground: hsl(170 40% 96%);
+  --sidebar-border: hsl(174 47% 15%);
+  --sidebar-ring: hsl(174 77% 50%);
+  --primary-border: hsl(from hsl(174 77% 50%) h s calc(l + var(--opaque-button-border-intensity)));
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

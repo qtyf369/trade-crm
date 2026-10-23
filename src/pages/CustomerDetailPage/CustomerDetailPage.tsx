@@ -19,6 +19,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
+import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
+import { handleConflictError } from '@/lib/conflict';
 
 /** 后端 'YYYY-MM-DD HH:MM:SS' -> Date（Safari 不认空格格式，必须替换成 T） */
 function parseDt(s?: string): Date | null {
@@ -102,6 +104,9 @@ export default function CustomerDetailPage() {
     };
   }, [id]);
 
+  // 标签页聚焦时自动刷新
+  useRefreshOnFocus(loadDetail);
+
   if (notFound) {
     return (
       <div className="p-6 max-w-5xl mx-auto">
@@ -157,12 +162,15 @@ export default function CustomerDetailPage() {
         products: editForm.products ?? '',
         contacts: customer.contacts ?? [],
         starred: customer.starred ?? 0,
+        updated_at: customer.updated_at, // 乐观锁
       });
       setEditing(false);
       toast.success('基本信息已更新');
       loadDetail();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : '保存失败');
+      if (!handleConflictError(e, loadDetail)) {
+        toast.error(e instanceof Error ? e.message : '保存失败');
+      }
     }
   };
 
@@ -176,12 +184,14 @@ export default function CustomerDetailPage() {
   const saveContacts = async () => {
     if (!id) return;
     try {
-      await api.updateCustomer(id, { ...customer, contacts: contactsForm });
+      await api.updateCustomer(id, { ...customer, contacts: contactsForm, updated_at: customer.updated_at });
       setEditingContacts(false);
       toast.success('联系人已更新');
       loadDetail();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : '保存失败');
+      if (!handleConflictError(e, loadDetail)) {
+        toast.error(e instanceof Error ? e.message : '保存失败');
+      }
     }
   };
 
@@ -210,10 +220,12 @@ export default function CustomerDetailPage() {
     const next = customer.starred ? 0 : 1;
     setCustomer({ ...customer, starred: next });
     try {
-      await api.updateCustomer(id, { ...customer, starred: next });
-    } catch {
+      await api.updateCustomer(id, { ...customer, starred: next, updated_at: customer.updated_at });
+    } catch (e) {
       setCustomer({ ...customer, starred: customer.starred });
-      toast.error('操作失败');
+      if (!handleConflictError(e, loadDetail)) {
+        toast.error('操作失败');
+      }
     }
   };
 
@@ -230,6 +242,7 @@ export default function CustomerDetailPage() {
           content: form.content,
           next_follow_up_at: form.nextFollowUpAt,
           created_at: customTime || editingFollowUp.created_at,
+          updated_at: editingFollowUp.updated_at, // 乐观锁
         });
         toast.success('跟进记录已更新');
         setEditingFollowUp(null);
@@ -248,7 +261,9 @@ export default function CustomerDetailPage() {
       setCustomTime('');
       loadDetail();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : '保存失败');
+      if (!handleConflictError(e, loadDetail)) {
+        toast.error(e instanceof Error ? e.message : '保存失败');
+      }
     }
   };
 

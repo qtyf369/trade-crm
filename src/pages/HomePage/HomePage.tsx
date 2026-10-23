@@ -7,6 +7,7 @@ import { CUSTOMER_STATUS_META } from '@/data/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
 
 export default function HomePage() {
   const navigate = useNavigate();
@@ -14,21 +15,26 @@ export default function HomePage() {
   const [followups, setFollowups] = useState<IFollowUp[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    let alive = true;
+  const loadHome = () => {
+    setLoading(true);
     Promise.all([
       api.listCustomers({ page: 1, page_size: 5, sort_by: 'created_at', sort_asc: false }),
       api.listFollowups({ page: 1, page_size: 100 }),
     ])
       .then(([c, f]) => {
-        if (!alive) return;
         setCustomers(c.items);
         setFollowups(f.items);
       })
       .catch(() => {})
-      .finally(() => { if (alive) setLoading(false); });
-    return () => { alive = false; };
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadHome();
   }, []);
+
+  // 标签页聚焦时自动刷新
+  useRefreshOnFocus(loadHome);
 
   // 挂载时取一次时间基准（React Compiler 要求渲染过程保持纯净）
   const [nowTs] = useState(() => Date.now());
@@ -39,34 +45,45 @@ export default function HomePage() {
   }).length;
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-semibold">仪表盘</h1>
-          <p className="text-muted-foreground text-sm mt-1">外贸客户管理概览</p>
+    <div className="p-6 max-w-6xl mx-auto h-full flex flex-col">
+      {/* 页头 — 不滚动 */}
+      <div className="shrink-0 -mx-6 px-6 -mt-6 pt-6 pb-4 bg-background border-b border-border/50">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold">仪表盘</h1>
+            <p className="text-muted-foreground text-sm mt-1">外贸客户管理概览</p>
+          </div>
+          <Button onClick={() => navigate('/customers')}>
+            管理客户
+            <ArrowRight className="ml-2 h-4 w-4" />
+          </Button>
         </div>
-        <Button onClick={() => navigate('/customers')}>
-          管理客户
-          <ArrowRight className="ml-2 h-4 w-4" />
-        </Button>
       </div>
 
       {/* 统计卡片：总数类指标单独请求 total，避免拉全量 */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <StatCard title="客户总数" icon={Users} color="text-blue-600" bg="bg-blue-50 dark:bg-blue-950/40" />
+        <StatCard
+          title="客户总数"
+          icon={Users}
+          color="text-blue-600"
+          bg="bg-blue-50 dark:bg-blue-950/40"
+          onClick={() => navigate('/customers')}
+        />
         <StatCard
           title="跟进中"
           icon={Clock}
           color="text-amber-600"
           bg="bg-amber-50 dark:bg-amber-950/40"
           query={{ status: 'contacted,quoted,negotiating' }}
+          onClick={() => navigate('/customers?status=contacted,quoted,negotiating')}
         />
         <StatCard
-          title="已成交"
+          title="成交客户"
           icon={CheckCircle}
           color="text-green-600"
           bg="bg-green-50 dark:bg-green-950/40"
           query={{ status: 'deal' }}
+          onClick={() => navigate('/customers?status=deal')}
         />
         <Card
           className="cursor-pointer hover:shadow-md transition-shadow"
@@ -103,7 +120,7 @@ export default function HomePage() {
                 {customers.map((c) => (
                   <div
                     key={c.id}
-                    className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted/50 cursor-pointer"
+                    className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-primary/5 hover:border-primary/20 cursor-pointer transition-all duration-200"
                     onClick={() => navigate(`/customers/${c.id}`)}
                   >
                     <div className="flex items-center gap-3 min-w-0">
@@ -163,13 +180,14 @@ export default function HomePage() {
 
 /** 只显示一个数字的统计卡：用 total 字段，不拉全量数据 */
 function StatCard({
-  title, icon, color, bg, query,
+  title, icon, color, bg, query, onClick,
 }: {
   title: string;
   icon: typeof Users;
   color: string;
   bg: string;
   query?: Parameters<typeof api.listCustomers>[0];
+  onClick?: () => void;
 }) {
   const [value, setValue] = useState<number | '…'>('…');
 
@@ -182,7 +200,10 @@ function StatCard({
   }, [query]);
 
   return (
-    <Card>
+    <Card
+      className={`hover:shadow-md transition-all duration-200 ${onClick ? 'cursor-pointer hover:border-primary/30' : 'cursor-default'}`}
+      onClick={onClick}
+    >
       <CardContent className="p-6">
         <div className="flex items-center justify-between">
           <div>

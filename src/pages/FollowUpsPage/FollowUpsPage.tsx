@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Plus, MessageSquare, Trash2, Pencil, Check, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Plus, MessageSquare, Trash2, Pencil, Check, X, RefreshCw } from 'lucide-react';
 import { api } from '@/data/api';
 import type { ICustomer, IFollowUp, FollowUpType } from '@/data/types';
 import { FOLLOWUP_TYPE_META } from '@/data/types';
@@ -14,6 +15,8 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
+import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
+import { handleConflictError } from '@/lib/conflict';
 
 /** 后端时间格式是 'YYYY-MM-DD HH:MM:SS'，new Date 需要先转成 ISO */
 function parseDt(s?: string): Date | null {
@@ -23,39 +26,57 @@ function parseDt(s?: string): Date | null {
 }
 
 export default function FollowUpsPage() {
+  const navigate = useNavigate();
   const [followups, setFollowups] = useState<IFollowUp[]>([]);
+  const [total, setTotal] = useState(0);
   const [customerMap, setCustomerMap] = useState<Record<string, ICustomer>>({});
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<IFollowUp | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<IFollowUp | null>(null);
+  const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
     customerId: '', type: 'email' as FollowUpType, content: '', nextFollowUpAt: '', createdAt: '',
   });
 
+  // 分页
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  const loadFollowups = useCallback(() => {
+    setLoading(true);
+    api.listFollowups({ page, page_size: pageSize })
+      .then((r) => {
+        setFollowups(r.items);
+        setTotal(r.total);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [page, pageSize]);
+
   useEffect(() => {
-    let alive = true;
-    Promise.all([
-      api.listFollowups({ page: 1, page_size: 100 }),
-      api.listCustomers({ page: 1, page_size: 500 }),
-    ])
-      .then(([f, c]) => {
-        if (!alive) return;
-        setFollowups(f.items);
+    loadFollowups();
+  }, [loadFollowups]);
+
+  // 客户列表只需加载一次
+  useEffect(() => {
+    api.listCustomers({ page: 1, page_size: 500 })
+      .then((c) => {
         const map: Record<string, ICustomer> = {};
         c.items.forEach((x) => { map[x.id] = x; });
         setCustomerMap(map);
       })
       .catch(() => {});
-    return () => { alive = false; };
   }, []);
 
   const reload = () => {
-    api.listFollowups({ page: 1, page_size: 100 })
-      .then((r) => setFollowups(r.items))
-      .catch(() => {});
+    loadFollowups();
   };
 
-  // 挂载时取一次时间基准（React Compiler 要求渲染过程保持纯净）
+  // 标签页聚焦时自动刷新
+  useRefreshOnFocus(reload);
+
+  // 挂载时取一次时间基准
   const [nowTs] = useState(() => Date.now());
 
   const stats = useMemo(() => {
@@ -69,8 +90,8 @@ export default function FollowUpsPage() {
       if (d.toDateString() === today) todayCount++;
       if (d.getTime() >= weekAgo) weekCount++;
     }
-    return { todayCount, weekCount, total: followups.length };
-  }, [followups, nowTs]);
+    return { todayCount, weekCount, total };
+  }, [followups, nowTs, total]);
 
   const openAdd = () => {
     setEditing(null);
@@ -104,6 +125,7 @@ export default function FollowUpsPage() {
           content: form.content,
           next_follow_up_at: form.nextFollowUpAt,
           created_at: form.createdAt || undefined,
+          updated_at: editing.updated_at, // 乐观锁
         });
         toast.success('跟进记录已更新');
       } else {
@@ -119,7 +141,9 @@ export default function FollowUpsPage() {
       setDialogOpen(false);
       reload();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : '保存失败');
+      if (!handleConflictError(e, reload)) {
+        toast.error(e instanceof Error ? e.message : '保存失败');
+      }
     }
   };
 
@@ -135,22 +159,25 @@ export default function FollowUpsPage() {
   };
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-semibold">跟进记录</h1>
-          <p className="text-muted-foreground text-sm mt-1">共 {stats.total} 条记录</p>
+    <div className="p-6 max-w-5xl mx-auto h-full flex flex-col">
+      {/* 页头 — 不滚动 */}
+      <div className="shrink-0 -mx-6 px-6 -mt-6 pt-6 pb-4 bg-background border-b border-border/50">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h1 className="text-2xl font-semibold">跟进记录</h1>
+            <p className="text-muted-foreground text-sm mt-1">共 {stats.total} 条记录</p>
+          </div>
+          <Button onClick={openAdd} disabled={Object.keys(customerMap).length === 0}>
+            <Plus className="mr-2 h-4 w-4" />
+            添加跟进
+          </Button>
         </div>
-        <Button onClick={openAdd} disabled={Object.keys(customerMap).length === 0}>
-          <Plus className="mr-2 h-4 w-4" />
-          添加跟进
-        </Button>
-      </div>
 
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        <MiniStat label="今日跟进" value={stats.todayCount} />
-        <MiniStat label="本周跟进" value={stats.weekCount} />
-        <MiniStat label="总跟进记录" value={stats.total} />
+        <div className="grid grid-cols-3 gap-4">
+          <MiniStat label="今日跟进" value={stats.todayCount} />
+          <MiniStat label="本周跟进" value={stats.weekCount} />
+          <MiniStat label="总跟进记录" value={stats.total} />
+        </div>
       </div>
 
       {Object.keys(customerMap).length === 0 && (
@@ -159,7 +186,8 @@ export default function FollowUpsPage() {
         </div>
       )}
 
-      <div className="space-y-3">
+      {/* 记录列表 — 可滚动 */}
+      <div className="flex-1 min-h-0 overflow-y-auto mt-4 space-y-3">
         {followups.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground text-sm border border-dashed rounded-lg">
             还没有跟进记录
@@ -169,13 +197,18 @@ export default function FollowUpsPage() {
             const customer = customerMap[f.customer_id];
             const next = parseDt(f.next_follow_up_at);
             return (
-              <div key={f.id} className="flex items-start gap-4 p-4 rounded-lg border border-border bg-card group">
+              <div key={f.id} className="flex items-start gap-4 p-4 rounded-lg border border-border bg-card hover:border-primary/20 hover:shadow-sm transition-all duration-200 group">
                 <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                   <MessageSquare className="h-5 w-5 text-primary" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <span className="font-medium">{customer?.company || '未知客户'}</span>
+                    <button
+                      className="font-medium hover:text-primary rounded px-1 -mx-1 hover:bg-primary/10 transition-colors duration-150 cursor-pointer"
+                      onClick={() => navigate(`/customers/${f.customer_id}`)}
+                    >
+                      {customer?.company || '未知客户'}
+                    </button>
                     <Badge variant="outline" className="text-xs">
                       {FOLLOWUP_TYPE_META[f.type as FollowUpType]?.label || f.type}
                     </Badge>
@@ -207,6 +240,51 @@ export default function FollowUpsPage() {
             );
           })
         )}
+      </div>
+
+      {/* 分页 — 固定在底部 */}
+      <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 pt-4 mt-4 border-t border-border/50">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : 'invisible'}`} />
+          共 {total} 条记录
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">每页</span>
+            <select
+              className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value));
+                setPage(1);
+              }}
+            >
+              <option value={10}>10</option>
+              <option value={20}>20</option>
+              <option value={50}>50</option>
+            </select>
+            <span className="text-sm text-muted-foreground">条</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="outline" size="sm"
+              disabled={page <= 1 || loading}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              上一页
+            </Button>
+            <span className="text-sm mx-2">
+              第 {page} / {totalPages} 页
+            </span>
+            <Button
+              variant="outline" size="sm"
+              disabled={page >= totalPages || loading}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            >
+              下一页
+            </Button>
+          </div>
+        </div>
       </div>
 
       {/* 添加/编辑弹窗 */}
@@ -302,7 +380,7 @@ export default function FollowUpsPage() {
 
 function MiniStat({ label, value }: { label: string; value: number }) {
   return (
-    <Card>
+    <Card className="hover:shadow-md transition-all duration-200">
       <CardContent className="p-4">
         <p className="text-sm text-muted-foreground">{label}</p>
         <p className="text-2xl font-semibold mt-1">{value}</p>

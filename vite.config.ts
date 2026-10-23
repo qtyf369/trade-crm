@@ -25,6 +25,8 @@ function miaodaOutputPlugin(): Plugin {
       const output = path.join(dist, 'output');
       const outputResource = path.join(dist, 'output_resource');
 
+      if (!fs.existsSync(client)) return;
+
       fs.rmSync(output, { recursive: true, force: true });
       fs.rmSync(outputResource, { recursive: true, force: true });
       fs.mkdirSync(output, { recursive: true });

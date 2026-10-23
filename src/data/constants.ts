@@ -13,7 +13,7 @@ export const STATUS_LABELS: Record<string, string> = {
   contacted: '初步沟通',
   quoted: '已报价未成交',
   negotiating: '谈判中',
-  deal: '已成交',
+  deal: '成交客户',
   lost: '已流失',
 };
 

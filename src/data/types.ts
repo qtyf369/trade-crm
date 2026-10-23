@@ -32,6 +32,8 @@ export interface ICustomer {
   data_issues?: string[] | string;
   /** 列表接口附带：最近一条跟进时间 */
   last_followup_at?: string;
+  /** 乐观锁：上次更新时间，更新时回传给后端校验 */
+  updated_at?: string;
 }
 
 export interface IFollowUp {
@@ -41,6 +43,8 @@ export interface IFollowUp {
   content: string;
   next_follow_up_at: string;
   created_at: string;
+  /** 乐观锁：上次更新时间，更新时回传给后端校验 */
+  updated_at?: string;
 }
 
 export const CUSTOMER_STATUS_META: Record<CustomerStatus, { label: string; color: string }> = {
@@ -48,7 +52,7 @@ export const CUSTOMER_STATUS_META: Record<CustomerStatus, { label: string; color
   contacted: { label: '初步沟通', color: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300' },
   quoted: { label: '已报价', color: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300' },
   negotiating: { label: '谈判中', color: 'bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300' },
-  deal: { label: '已成交', color: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300' },
+  deal: { label: '成交客户', color: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300' },
   lost: { label: '已流失', color: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400' },
 };
 

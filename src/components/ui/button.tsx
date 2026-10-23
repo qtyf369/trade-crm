@@ -5,28 +5,25 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
-  // Base button styles with elevate system for hover/active states.
-  // hover-elevate: applies subtle dark overlay on hover
-  // active-elevate-2: applies stronger dark overlay when pressed
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 hover-elevate active-elevate-2",
+  // Base button styles with smooth transitions and theme-aware hover effects
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 transition-all duration-200 hover-elevate active-elevate-2",
   {
     variants: {
       variant: {
         default:
-          // Solid primary button with computed border for depth
-          "bg-primary text-primary-foreground border border-primary-border",
+          // Solid primary button with computed border for depth; brighter on hover
+          "bg-primary text-primary-foreground border border-primary-border hover:brightness-110 active:brightness-95",
         destructive:
           // Destructive action button with matching border
-          "bg-destructive text-destructive-foreground border border-destructive-border",
+          "bg-destructive text-destructive-foreground border border-destructive-border hover:brightness-110 active:brightness-95",
         outline:
-          // Shows the background color of whatever card / sidebar / accent background it is inside of.
-          // Inherits the current text color.
-          "border [border-color:var(--button-outline)] shadow-xs active:shadow-none",
+          // Outline button: shows primary tint on hover
+          "border border-primary/30 shadow-xs active:shadow-none hover:bg-primary/8 hover:border-primary/50 active:bg-primary/15",
         secondary:
-          // Subtle filled button for secondary actions
-          "bg-secondary text-secondary-foreground border border-secondary-border",
-        // Add a transparent border so that when someone toggles a border on later, it doesn't shift layout/size.
-        ghost: "border border-transparent",
+          // Subtle filled button for secondary actions; primary tint on hover
+          "bg-secondary text-secondary-foreground border border-secondary-border hover:bg-primary/10 hover:text-primary active:bg-primary/15",
+        // Ghost: transparent → primary tint on hover
+        ghost: "border border-transparent hover:bg-primary/8 hover:text-primary active:bg-primary/15",
       },
       // Heights are set as "min" heights, because sometimes AI will place large amount of content
       // inside buttons. With a min-height they will look appropriate with small amounts of content,

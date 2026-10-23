@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Plus, Search, Pencil, Trash2, Filter, X, Star, Upload, Download,
   AlertTriangle, CheckSquare, RefreshCw,
@@ -17,6 +17,8 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
+import { useRefreshOnFocus } from '@/hooks/use-refresh-on-focus';
+import { handleConflictError } from '@/lib/conflict';
 import CustomerTable from './components/CustomerTable';
 import CustomerFormDialog from './components/CustomerFormDialog';
 import BatchExportDialog from './components/BatchExportDialog';
@@ -56,9 +58,16 @@ export default function CustomersPage() {
   const [sortAsc, setSortAsc] = useState(true);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
+
+  // 从 URL search params 读取初始筛选（仪表盘跳转等场景）
+  const [searchParams] = useSearchParams();
+  const initialStatusParam = searchParams.get('status');
+
   const [selectedCountries, setSelectedCountries] = useState<string[]>([]);
   const [selectedLevels, setSelectedLevels] = useState<string[]>([]);
-  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>(
+    initialStatusParam ? initialStatusParam.split(',') : [],
+  );
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [starredOnly, setStarredOnly] = useState(false);
   const [issuesOnly, setIssuesOnly] = useState(false);
@@ -123,6 +132,9 @@ export default function CustomersPage() {
     debouncedSearch, countryKey, levelKey, statusKey, sourceKey,
     starredOnly, issuesOnly, sortBy, sortAsc, page, pageSize,
   ]);
+
+  // 标签页聚焦时自动刷新，防止用过时数据操作
+  useRefreshOnFocus(load);
 
   // 查询依赖变化时重新加载；用 setTimeout 脱离同步渲染阶段
   useEffect(() => {
@@ -210,7 +222,10 @@ export default function CustomersPage() {
     }
     try {
       if (editingCustomer) {
-        await api.updateCustomer(editingCustomer.id, form);
+        await api.updateCustomer(editingCustomer.id, {
+          ...form,
+          updated_at: editingCustomer.updated_at, // 乐观锁
+        });
         toast.success('客户已更新');
       } else {
         await api.createCustomer(form);
@@ -219,7 +234,9 @@ export default function CustomersPage() {
       setDialogOpen(false);
       load();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : '操作失败');
+      if (!handleConflictError(e, load)) {
+        toast.error(e instanceof Error ? e.message : '操作失败');
+      }
     }
   };
 
@@ -244,12 +261,14 @@ export default function CustomersPage() {
     // 乐观更新，失败回滚
     setItems((list) => list.map((c) => (c.id === customer.id ? { ...c, starred: next } : c)));
     try {
-      await api.updateCustomer(customer.id, { ...customer, starred: next });
-    } catch {
+      await api.updateCustomer(customer.id, { ...customer, starred: next, updated_at: customer.updated_at });
+    } catch (e) {
       setItems((list) =>
         list.map((c) => (c.id === customer.id ? { ...c, starred: customer.starred } : c)),
       );
-      toast.error('操作失败');
+      if (!handleConflictError(e, load)) {
+        toast.error('操作失败');
+      }
     }
   };
 
@@ -300,182 +319,183 @@ export default function CustomersPage() {
   const [now] = useState(() => Date.now());
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      {/* 页头 */}
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-        <div>
-          <h1 className="text-2xl font-semibold">客户管理</h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            {debouncedSearch || activeFilterCount || starredOnly || issuesOnly
-              ? `筛选出 ${total} 个客户`
-              : `共 ${total} 个客户`}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" className={hoverBtn} onClick={() => window.open(api.exportUrl(), '_blank')}>
-            <Download className="mr-2 h-4 w-4" />
-            导出全部
-          </Button>
-          <Button variant="outline" className={hoverBtn} onClick={() => setBatchExportOpen(true)}>
-            批量导出
-          </Button>
-          <label>
-            <input
-              type="file"
-              accept=".xlsx"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) handleImport(f);
-                e.target.value = '';
-              }}
-            />
-            <span className={`inline-flex items-center justify-center rounded-md text-sm font-medium border border-input bg-background hover:bg-accent hover:text-accent-foreground hover:shadow-md h-10 px-4 py-2 cursor-pointer transition-all duration-200 active:scale-[0.97]`}>
-              <Upload className="mr-2 h-4 w-4" />
-              导入Excel
-            </span>
-          </label>
-          <Button className={hoverBtn} onClick={openAdd}>
-            <Plus className="mr-2 h-4 w-4" />
-            新增客户
-          </Button>
-          <Button
-            variant={batchMode ? 'default' : 'outline'}
-            className={hoverBtn}
-            onClick={() => {
-              setBatchMode((v) => !v);
-              setSelected(new Set());
-            }}
-          >
-            <CheckSquare className="mr-2 h-4 w-4" />
-            {batchMode ? '退出批量' : '批量操作'}
-          </Button>
-        </div>
-      </div>
-
-      {/* 批量操作栏 */}
-      {batchMode && (
-        <div className="mb-4 p-3 bg-primary/5 border border-primary/20 rounded-lg flex flex-wrap items-center justify-between gap-3">
-          <div className="text-sm text-primary">
-            已选中 <strong>{selected.size}</strong> 个客户
-            {batchBusy && <span className="ml-2 text-muted-foreground">处理中…</span>}
+    <div className="p-6 max-w-7xl mx-auto h-full flex flex-col">
+      {/* 页头 — 不滚动 */}
+      <div className="shrink-0 -mx-6 px-6 -mt-6 pt-6 pb-4 bg-background border-b border-border/50">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div>
+            <h1 className="text-2xl font-semibold">客户管理</h1>
+            <p className="text-muted-foreground text-sm mt-1">
+              {debouncedSearch || activeFilterCount || starredOnly || issuesOnly
+                ? `筛选出 ${total} 个客户`
+                : `共 ${total} 个客户`}
+            </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline" size="sm"
-              disabled={selected.size === 0}
-              onClick={() => window.open(api.exportUrl({ ids: Array.from(selected).join(',') }), '_blank')}
-            >
-              导出选中
+            <Button variant="outline" className={hoverBtn} onClick={() => window.open(api.exportUrl(), '_blank')}>
+              <Download className="mr-2 h-4 w-4" />
+              导出全部
+            </Button>
+            <Button variant="outline" className={hoverBtn} onClick={() => setBatchExportOpen(true)}>
+              批量导出
+            </Button>
+            <label>
+              <input
+                type="file"
+                accept=".xlsx"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleImport(f);
+                  e.target.value = '';
+                }}
+              />
+              <span className={`inline-flex items-center justify-center rounded-md text-sm font-medium border border-input bg-background hover:bg-accent hover:text-accent-foreground hover:shadow-md h-10 px-4 py-2 cursor-pointer transition-all duration-200 active:scale-[0.97]`}>
+                <Upload className="mr-2 h-4 w-4" />
+                导入Excel
+              </span>
+            </label>
+            <Button className={hoverBtn} onClick={openAdd}>
+              <Plus className="mr-2 h-4 w-4" />
+              新增客户
             </Button>
             <Button
-              variant="outline" size="sm"
-              disabled={selected.size === 0 || batchBusy}
-              onClick={() => runBatch('star')}
-            >
-              加星标
-            </Button>
-            <Button
-              variant="outline" size="sm"
-              disabled={selected.size === 0 || batchBusy}
-              onClick={() => runBatch('unstar')}
-            >
-              取消星标
-            </Button>
-            <Button
-              variant="outline" size="sm"
-              className="text-destructive hover:text-destructive"
-              disabled={selected.size === 0 || batchBusy}
-              onClick={() => runBatch('delete', `确定删除选中的 ${selected.size} 个客户吗？跟进记录会一并删除，无法恢复。`)}
-            >
-              <Trash2 className="mr-1 h-4 w-4" />
-              删除选中
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* 数据问题提醒 */}
-      {issueCount > 0 && (
-        <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between dark:bg-amber-950/30 dark:border-amber-900">
-          <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200">
-            <AlertTriangle className="h-4 w-4" />
-            <span className="text-sm">
-              有 <strong>{issueCount}</strong> 条客户数据存在问题需要完善
-            </span>
-          </div>
-          {issuesOnly ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className={hoverBtn}
-              onClick={() => setIssuesOnly(false)}
-            >
-              取消筛选
-            </Button>
-          ) : (
-            <Button
-              variant="outline"
-              size="sm"
+              variant={batchMode ? 'default' : 'outline'}
               className={hoverBtn}
               onClick={() => {
-                // 点击"查看"直接在列表中筛出问题客户
-                setIssuesOnly(true);
-                setPage(1);
+                setBatchMode((v) => !v);
+                setSelected(new Set());
               }}
             >
-              查看
+              <CheckSquare className="mr-2 h-4 w-4" />
+              {batchMode ? '退出批量' : '批量操作'}
             </Button>
-          )}
+          </div>
         </div>
-      )}
 
-      {/* 搜索栏 */}
-      <div className="mb-4 flex gap-2">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="搜索公司名、联系人、国家、产品或备注..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-          />
+        {/* 批量操作栏 */}
+        {batchMode && (
+          <div className="mb-3 p-3 bg-primary/5 border border-primary/20 rounded-lg flex flex-wrap items-center justify-between gap-3">
+            <div className="text-sm text-primary">
+              已选中 <strong>{selected.size}</strong> 个客户
+              {batchBusy && <span className="ml-2 text-muted-foreground">处理中…</span>}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline" size="sm"
+                disabled={selected.size === 0}
+                onClick={() => window.open(api.exportUrl({ ids: Array.from(selected).join(',') }), '_blank')}
+              >
+                导出选中
+              </Button>
+              <Button
+                variant="outline" size="sm"
+                disabled={selected.size === 0 || batchBusy}
+                onClick={() => runBatch('star')}
+              >
+                加星标
+              </Button>
+              <Button
+                variant="outline" size="sm"
+                disabled={selected.size === 0 || batchBusy}
+                onClick={() => runBatch('unstar')}
+              >
+                取消星标
+              </Button>
+              <Button
+                variant="outline" size="sm"
+                className="text-destructive hover:text-destructive"
+                disabled={selected.size === 0 || batchBusy}
+                onClick={() => runBatch('delete', `确定删除选中的 ${selected.size} 个客户吗？跟进记录会一并删除，无法恢复。`)}
+              >
+                <Trash2 className="mr-1 h-4 w-4" />
+                删除选中
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* 数据问题提醒 */}
+        {issueCount > 0 && (
+          <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-center justify-between dark:bg-amber-950/30 dark:border-amber-900">
+            <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200">
+              <AlertTriangle className="h-4 w-4" />
+              <span className="text-sm">
+                有 <strong>{issueCount}</strong> 条客户数据存在问题需要完善
+              </span>
+            </div>
+            {issuesOnly ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className={hoverBtn}
+                onClick={() => setIssuesOnly(false)}
+              >
+                取消筛选
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                className={hoverBtn}
+                onClick={() => {
+                  setIssuesOnly(true);
+                  setPage(1);
+                }}
+              >
+                查看
+              </Button>
+            )}
+          </div>
+        )}
+
+        {/* 搜索栏 */}
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="搜索公司名、联系人、国家、产品或备注..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          <Button
+            variant={showFilterPanel || activeFilterCount > 0 ? 'default' : 'outline'}
+            className={hoverBtn}
+            onClick={() => setShowFilterPanel((v) => !v)}
+          >
+            <Filter className="mr-2 h-4 w-4" />
+            筛选
+            {activeFilterCount > 0 && (
+              <span className="ml-2 bg-primary-foreground/20 rounded-full px-2 text-xs">
+                {activeFilterCount}
+              </span>
+            )}
+          </Button>
         </div>
-        <Button
-          variant={showFilterPanel || activeFilterCount > 0 ? 'default' : 'outline'}
-          className={hoverBtn}
-          onClick={() => setShowFilterPanel((v) => !v)}
-        >
-          <Filter className="mr-2 h-4 w-4" />
-          筛选
-          {activeFilterCount > 0 && (
-            <span className="ml-2 bg-primary-foreground/20 rounded-full px-2 text-xs">
-              {activeFilterCount}
-            </span>
-          )}
-        </Button>
+
+        {showFilterPanel && (
+          <FilterPanel
+            selectedCountries={selectedCountries}
+            setSelectedCountries={setSelectedCountries}
+            selectedLevels={selectedLevels}
+            setSelectedLevels={setSelectedLevels}
+            selectedStatuses={selectedStatuses}
+            setSelectedStatuses={setSelectedStatuses}
+            selectedSources={selectedSources}
+            setSelectedSources={setSelectedSources}
+            starredOnly={starredOnly}
+            setStarredOnly={setStarredOnly}
+            issuesOnly={issuesOnly}
+            setIssuesOnly={setIssuesOnly}
+            onReset={resetFilters}
+          />
+        )}
       </div>
 
-      {showFilterPanel && (
-        <FilterPanel
-          selectedCountries={selectedCountries}
-          setSelectedCountries={setSelectedCountries}
-          selectedLevels={selectedLevels}
-          setSelectedLevels={setSelectedLevels}
-          selectedStatuses={selectedStatuses}
-          setSelectedStatuses={setSelectedStatuses}
-          selectedSources={selectedSources}
-          setSelectedSources={setSelectedSources}
-          starredOnly={starredOnly}
-          setStarredOnly={setStarredOnly}
-          issuesOnly={issuesOnly}
-          setIssuesOnly={setIssuesOnly}
-          onReset={resetFilters}
-        />
-      )}
-
-      {/* 表格 */}
-      <div className="rounded-lg border border-border bg-card">
+      {/* 表格区域 — 独立滚动 */}
+      <div className="flex-1 min-h-0 mt-4 rounded-lg border border-border bg-card flex flex-col">
         <CustomerTable
           items={items}
           loading={loading}
@@ -495,8 +515,8 @@ export default function CustomersPage() {
           onOpen={(id) => navigate(`/customers/${id}`)}
         />
 
-        {/* 分页 */}
-        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t border-border">
+        {/* 分页 — 固定在底部 */}
+        <div className="shrink-0 flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t border-border">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : 'invisible'}`} />
             共 {total} 个客户
