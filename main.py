@@ -22,6 +22,7 @@ import hashlib
 import tempfile
 import threading
 import webbrowser
+import zipfile
 import sys
 from contextlib import contextmanager
 from datetime import datetime, date
@@ -91,6 +92,7 @@ CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
 DIST_DIR = os.path.join(RESOURCE_DIR, "dist", "output")
 ASSETS_DIR = os.path.join(RESOURCE_DIR, "dist", "output_resource")
 BACKUP_DIR = os.path.join(BASE_DIR, "backups")
+SETTINGS_PATH = os.path.join(BASE_DIR, "ui_settings.json")
 
 os.makedirs(BASE_DIR, exist_ok=True)
 os.makedirs(BACKUP_DIR, exist_ok=True)
@@ -508,40 +510,196 @@ class SyncResolve(BaseModel):
 
 
 class SettingsPayload(BaseModel):
-    """界面偏好（主题模式、配色方案、缩放比例等），键值任意"""
+    """界面偏好（主题模式、配色方案等），键值任意"""
     settings: Dict[str, Any] = Field(default_factory=dict)
 
 
-# ---------- 自动备份 ----------
+class BackupRestore(BaseModel):
+    """从备份恢复：file 为 backups 目录下的备份文件名"""
+    file: str = Field(..., description="如 backup_20261023_150000_manual.zip")
+
+
+# ---------- 备份与恢复 ----------
+#
+# 备份为单文件 zip（内含数据库 + 全部配置 + 界面设置），便于拷贝到其它电脑。
+# 文件名带时间戳，可保留多份；恢复前会自动把当前状态再备份一次。
+
+BACKUP_KEEP = 20
+BACKUP_MANIFEST = "manifest.json"
+
+
+def _collect_backup_files() -> List[Tuple[str, str]]:
+    items: List[Tuple[str, str]] = []
+    if os.path.exists(DB_PATH):
+        items.append(("trade_crm.db", DB_PATH))
+    if os.path.exists(CONFIG_PATH):
+        items.append(("config.json", CONFIG_PATH))
+    if os.path.exists(SETTINGS_PATH):
+        items.append(("ui_settings.json", SETTINGS_PATH))
+    return items
+
+
+def create_backup(tag: str = "manual") -> Dict[str, Any]:
+    """创建一份完整备份（数据库用一致性快照）"""
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"backup_{stamp}_{tag}.zip"
+    path = os.path.join(BACKUP_DIR, filename)
+
+    files = _collect_backup_files()
+    if not any(arc == "trade_crm.db" for arc, _ in files):
+        raise HTTPException(500, "本地数据库不存在，无法备份")
+
+    snapshot = _snapshot_db()
+    manifest: Dict[str, Any] = {"created_at": now_str(), "tag": tag, "app": "外贸CRM", "files": []}
+    try:
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for arc, src_path in files:
+                use = snapshot if arc == "trade_crm.db" else src_path
+                zf.write(use, arc)
+                manifest["files"].append({"name": arc, "size": os.path.getsize(use)})
+            manifest["counts"] = _counts(snapshot)
+            zf.writestr(BACKUP_MANIFEST, json.dumps(manifest, ensure_ascii=False, indent=2))
+    finally:
+        try:
+            os.unlink(snapshot)
+        except OSError:
+            pass
+
+    _prune_backups()
+    return {"ok": True, "file": filename, "size": os.path.getsize(path),
+            "counts": manifest.get("counts")}
+
+
+def _prune_backups() -> None:
+    """只清理自动备份，保留最近的若干份；手动备份不自动删除"""
+    try:
+        entries = []
+        for name in os.listdir(BACKUP_DIR):
+            if name.startswith("backup_") and name.endswith(".zip") and "_auto" in name:
+                p = os.path.join(BACKUP_DIR, name)
+                entries.append((os.path.getmtime(p), p))
+        entries.sort(reverse=True)
+        for _, p in entries[BACKUP_KEEP:]:
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+    except OSError:
+        pass
+
+
+def _cleanup_old_db_backups(days: int = 7) -> None:
+    """清理旧的单文件数据库备份"""
+    try:
+        for name in os.listdir(BACKUP_DIR):
+            if not (name.startswith("trade_crm_") and name.endswith(".db")):
+                continue
+            try:
+                file_date = datetime.strptime(
+                    name[len("trade_crm_"):-len(".db")], "%Y%m%d").date()
+            except ValueError:
+                continue
+            if (date.today() - file_date).days > days:
+                try:
+                    os.unlink(os.path.join(BACKUP_DIR, name))
+                except OSError:
+                    pass
+    except OSError:
+        pass
+
 
 def auto_backup() -> Dict[str, Any]:
-    """启动时自动备份，保留最近 7 天，同一天只备份一次"""
+    """启动时自动备份（每天一次）：数据库 + 全部设置，打包为 zip"""
     os.makedirs(BACKUP_DIR, exist_ok=True)
     if not os.path.exists(DB_PATH):
         return {"ok": False, "reason": "db missing"}
 
     today = date.today().strftime("%Y%m%d")
-    backup_file = os.path.join(BACKUP_DIR, f"trade_crm_{today}.db")
     created = False
-    if not os.path.exists(backup_file):
-        shutil.copy2(DB_PATH, backup_file)
-        created = True
-
-    for name in os.listdir(BACKUP_DIR):
-        if not (name.startswith("trade_crm_") and name.endswith(".db")):
-            continue
+    existing = [
+        n for n in os.listdir(BACKUP_DIR)
+        if n.startswith(f"backup_{today}") and "_auto" in n and n.endswith(".zip")
+    ]
+    if not existing:
         try:
-            file_date = datetime.strptime(
-                name[len("trade_crm_"):-len(".db")], "%Y%m%d"
-            ).date()
-        except ValueError:
-            continue
-        if (date.today() - file_date).days > 7:
-            try:
-                os.unlink(os.path.join(BACKUP_DIR, name))
-            except OSError:
-                pass
+            create_backup(tag="auto")
+            created = True
+        except Exception:
+            created = False
+
+    _cleanup_old_db_backups()
     return {"ok": True, "created": created}
+
+
+def _list_backups() -> List[Dict[str, Any]]:
+    result: List[Dict[str, Any]] = []
+    try:
+        for name in os.listdir(BACKUP_DIR):
+            if not (name.startswith("backup_") and name.endswith(".zip")):
+                continue
+            p = os.path.join(BACKUP_DIR, name)
+            item: Dict[str, Any] = {
+                "file": name, "size": os.path.getsize(p),
+                "mtime": int(os.path.getmtime(p)),
+                "counts": {"customers": -1, "followups": -1},
+                "created_at": "", "tag": "",
+            }
+            try:
+                with zipfile.ZipFile(p) as zf:
+                    if BACKUP_MANIFEST in zf.namelist():
+                        m = json.loads(zf.read(BACKUP_MANIFEST).decode("utf-8"))
+                        item["counts"] = m.get("counts") or item["counts"]
+                        item["created_at"] = m.get("created_at") or ""
+                        item["tag"] = m.get("tag") or ""
+            except Exception:
+                pass
+            result.append(item)
+    except OSError:
+        pass
+    result.sort(key=lambda x: x["mtime"], reverse=True)
+    return result
+
+
+def _restore_backup(filename: str) -> Dict[str, Any]:
+    """从备份恢复；恢复前先把当前状态另存一份，避免误操作无法回退"""
+    safe = os.path.basename(filename)
+    path = os.path.join(BACKUP_DIR, safe)
+    if not safe.startswith("backup_") or not safe.endswith(".zip") or not os.path.isfile(path):
+        raise HTTPException(404, "备份文件不存在")
+
+    with zipfile.ZipFile(path) as zf:
+        names = zf.namelist()
+        if "trade_crm.db" not in names:
+            raise HTTPException(400, "备份文件不完整（缺少数据库）")
+
+        try:
+            create_backup(tag="before_restore")
+        except Exception:
+            pass
+
+        with _db_lock:
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
+            tmp.write(zf.read("trade_crm.db"))
+            tmp.close()
+            try:
+                _validate_db_file(tmp.name)
+            except HTTPException:
+                os.unlink(tmp.name)
+                raise
+            shutil.move(tmp.name, DB_PATH)
+
+        restored = ["trade_crm.db"]
+        for name, target in (("config.json", CONFIG_PATH), ("ui_settings.json", SETTINGS_PATH)):
+            if name in names:
+                with open(target, "wb") as f:
+                    f.write(zf.read(name))
+                restored.append(name)
+
+    with get_db() as db:
+        migrate_countries(db)
+        normalize_datetimes(db)
+    return {"ok": True, "restored": restored, "counts": _counts(DB_PATH)}
 
 
 # ---------- FastAPI 实例 ----------
@@ -1400,11 +1558,13 @@ def _db_fingerprint(path: str) -> Dict[str, Any]:
     }
 
 
-def _remote_fingerprint(config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """云端数据库指纹（PROPFIND，不下载内容）。不存在返回 None
+def _remote_fingerprint_ex(config: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], str]:
+    """云端数据库指纹（PROPFIND），返回 (指纹, 错误信息)
 
-    注意：坚果云的 HEAD 请求会返回错误的 Content-Length（常见为 0），
-    因此必须用 PROPFIND 读取 getcontentlength / getlastmodified。
+    - 指纹 None 且错误为空 → 云端确实没有该文件
+    - 指纹 None 且错误非空 → 网络不通或鉴权失败（绝不能当成「云端为空」）
+
+    注意：坚果云 HEAD 会返回错误的 Content-Length，必须用 PROPFIND。
     """
     import requests
     import re as _re
@@ -1414,16 +1574,19 @@ def _remote_fingerprint(config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             auth=(config['webdav_user'], config['webdav_pass']),
             headers={"Depth": "1"}, timeout=20,
         )
-    except Exception:
-        return None
+    except Exception as e:
+        return None, f"网络不可达：{type(e).__name__}"
+    if res.status_code == 401:
+        return None, "账号或应用密码无效"
+    if res.status_code == 404:
+        return None, ""
     if res.status_code not in (200, 207):
-        return None
+        return None, f"HTTP {res.status_code}"
     body = res.text
-    # 找到 trade_crm.db 对应的那段 XML
     m = _re.search(
         r"<[dD]:href>[^<]*trade_crm\.db</[dD]:href>(.*?)</[dD]:response>", body, _re.S)
     if not m:
-        return None
+        return None, ""
     block = m.group(0)
     size_m = _re.search(r"<[dD]:getcontentlength>(\d+)</[dD]:getcontentlength>", block)
     mod_m = _re.search(r"<[dD]:getlastmodified>([^<]+)</[dD]:getlastmodified>", block)
@@ -1436,7 +1599,13 @@ def _remote_fingerprint(config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
             mtime = int(parsedate_to_datetime(mtime_raw).timestamp())
         except Exception:
             mtime = 0
-    return {"size": size, "mtime": mtime, "last_modified": mtime_raw}
+    return {"size": size, "mtime": mtime, "last_modified": mtime_raw}, ""
+
+
+def _remote_fingerprint(config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """云端数据库指纹（简单版）：拿不到返回 None"""
+    fp, _ = _remote_fingerprint_ex(config)
+    return fp
 
 
 def _snapshot_db() -> str:
@@ -1825,8 +1994,13 @@ def sync_inspect():
         return {"bound": False, "status": "unbound"}
 
     local = _db_fingerprint(DB_PATH) if os.path.exists(DB_PATH) else {"size": 0, "mtime": 0, "md5": ""}
-    remote = _remote_fingerprint(config)
+    remote, remote_err = _remote_fingerprint_ex(config)
     if remote is None:
+        # 断网不能报成 no_remote，否则用户会误以为云端是空的
+        if remote_err:
+            return {"bound": True, "status": "offline", "local": local,
+                    "local_counts": _counts(DB_PATH),
+                    "message": f"无法连接云端（{remote_err}），本地改动已保存，恢复网络后会自动同步"}
         return {"bound": True, "status": "no_remote", "local": local,
                 "local_counts": _counts(DB_PATH)}
 
@@ -2134,7 +2308,7 @@ def fix_countries():
 # 策略：本地始终保存一份（离线可用），已绑定坚果云时同时写入 timezone 无关的云端
 # settings.json，实现多端一致。读取时以「更新时间较新」的一方为准。
 
-SETTINGS_PATH = os.path.join(BASE_DIR, "ui_settings.json")
+# SETTINGS_PATH 已在文件头部路径区定义（备份功能需在启动时即可访问）
 
 
 def _remote_settings_url(config: Dict[str, Any]) -> str:
@@ -2230,6 +2404,36 @@ def save_settings(payload: SettingsPayload):
         return {"ok": True, "synced": False, "reason": str(e)}
 
 
+# ---------- 备份接口 ----------
+
+@app.get("/api/backup/list")
+def backup_list():
+    """列出所有备份（含客户数、时间、大小）"""
+    return {"backups": _list_backups(), "dir": BACKUP_DIR}
+
+
+@app.post("/api/backup/create")
+def backup_create():
+    """立即创建一份完整备份（数据库 + 全部设置）"""
+    return create_backup(tag="manual")
+
+
+@app.post("/api/backup/restore")
+def backup_restore(body: BackupRestore):
+    """从指定备份恢复；恢复前会自动再备份一份当前状态"""
+    return _restore_backup(body.file)
+
+
+@app.get("/api/backup/download")
+def backup_download(file: str = Query(..., description="备份文件名")):
+    """下载备份文件到本地（便于拷到其它电脑）"""
+    safe = os.path.basename(file)
+    p = os.path.join(BACKUP_DIR, safe)
+    if not safe.startswith("backup_") or not safe.endswith(".zip") or not os.path.isfile(p):
+        raise HTTPException(404, "备份文件不存在")
+    return FileResponse(p, filename=safe, media_type="application/zip")
+
+
 # ---------- 后台自动同步 ----------
 
 SYNC_INTERVAL = 120  # 秒；启动后每 2 分钟检查一次云端是否变化
@@ -2261,12 +2465,21 @@ def _sync_worker() -> None:
                              and state.get("remote_size") == remote["size"])
                     local_clean = (state.get("local_mtime") == local["mtime"]
                                    and state.get("local_size") == local["size"])
-                    # 云端变了 + 本地没有未提交改动 → 自动同步
-                    if not same and not known and local_clean:
-                        try:
-                            sync_auto()
-                        except Exception:
-                            pass
+                    if not same:
+                        if known and not local_clean:
+                            # 只有本地变了（含断网期间积累的改动）→ 自动上传
+                            try:
+                                _upload_db(config)
+                                _mark_synced()
+                            except Exception:
+                                pass
+                        elif local_clean and not known:
+                            # 只有云端变了 → 自动拉取融合
+                            try:
+                                sync_auto()
+                            except Exception:
+                                pass
+                        # 两端都变 → 留给用户选择，避免误覆盖
         except Exception:
             pass
         _time.sleep(SYNC_INTERVAL)

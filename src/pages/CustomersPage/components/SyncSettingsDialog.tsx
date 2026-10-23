@@ -28,7 +28,7 @@ interface Fingerprint {
 interface InspectResult {
   bound?: boolean;
   status: 'no_remote' | 'same' | 'local_newer' | 'remote_newer' | 'diverged'
-        | 'remote_empty' | 'unbound' | 'error';
+        | 'remote_empty' | 'unbound' | 'error' | 'offline';
   local?: Fingerprint;
   remote?: Fingerprint;
   local_counts?: { customers: number; followups: number };
@@ -348,6 +348,11 @@ export default function SyncSettingsDialog({ open, onOpenChange }: Props) {
               {inspect?.status === 'no_remote' && (
                 <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
                   云端还没有数据库，上传后即可多端使用
+                </p>
+              )}
+              {inspect?.status === 'offline' && (
+                <p className="rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
+                  ⚠ 无法连接云端，本地改动已安全保存，恢复网络后会自动同步
                 </p>
               )}
 

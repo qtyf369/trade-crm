@@ -1,9 +1,11 @@
 import type { ReactNode } from 'react';
-import { Sun, Moon, Monitor, Check } from 'lucide-react';
+import { useState } from 'react';
+import { Sun, Moon, Monitor, Check, Archive } from 'lucide-react';
 import {
   useTheme, type ThemeMode, COLOR_SCHEMES, COLOR_SCHEME_META, type ColorScheme,
 } from '@/hooks/use-theme';
 import SchemeAvatar from '@/components/SchemeAvatar';
+import BackupDialog from '@/components/BackupDialog';
 import { Button } from '@/components/ui/button';
 import {
   Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -53,6 +55,7 @@ function SectionLabel({ children }: { children: ReactNode }) {
 export default function SettingsDialog({ open, onOpenChange }: Props) {
   // 主题即时生效并持久化，无需「保存」；「完成」仅用于关闭面板
   const { mode, changeMode, scheme, changeScheme } = useTheme();
+  const [backupOpen, setBackupOpen] = useState(false);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -162,10 +165,22 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
               调整页面大小，浏览器会记住这个网站的比例，下次打开保持一致。
             </p>
           </section>
+          {/* 数据备份 */}
+          <section>
+            <SectionLabel>数据备份</SectionLabel>
+            <Button
+              variant="outline"
+              className="w-full justify-start"
+              onClick={() => { setBackupOpen(true); onOpenChange(false); }}
+            >
+              <Archive className="h-4 w-4" />
+              备份与恢复（含全部数据与设置）
+            </Button>
+          </section>
         </div>
 
         <DialogFooter className="shrink-0 border-t bg-muted/30 px-7 py-3 sm:items-center sm:justify-between sm:px-8 sm:py-3.5">
-          {/* 说明文字缩小、强制单行，避免在窄屏/67% 缩放下折行 */}
+          {/* 说明文字缩小、强制单行，避免在窄屏下折行 */}
           <p className="whitespace-nowrap text-xs text-muted-foreground max-sm:hidden">
             账号与数据同步（坚果云）在左上角头像菜单中设置
           </p>
@@ -174,6 +189,8 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
           </DialogClose>
         </DialogFooter>
       </DialogContent>
+
+      <BackupDialog open={backupOpen} onOpenChange={setBackupOpen} />
     </Dialog>
   );
 }
