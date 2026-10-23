@@ -159,4 +159,23 @@ export const api = {
     ),
 
   checkRemote: () => request<{ has_remote: boolean }>('/sync/check_remote', { method: 'POST' }),
+
+  // 用户画像（昵称 + 头像，存坚果云）
+  // exists: true=云端有；false=云端确实没有；null=读取失败（不要用本地值覆盖云端）
+  getProfile: () =>
+    request<{ bound: boolean; exists: boolean | null; nickname: string; avatar: string; error?: string }>(
+      '/profile',
+    ),
+
+  saveProfile: (data: { nickname: string; avatar: string }) =>
+    request<{ ok: boolean }>('/profile', { method: 'POST', body: JSON.stringify(data) }),
+
+  deleteProfile: () =>
+    request<{ ok: boolean }>('/profile', { method: 'DELETE' }),
+
+  // 只读：是否已绑定坚果云
+  getSyncStatus: () => request<{ bound: boolean }>('/sync/status'),
+
+  // 登出：只清本地凭据，云端 profile.json / trade_crm.db 保留
+  syncLogout: () => request<{ ok: boolean }>('/sync/logout', { method: 'POST' }),
 };
