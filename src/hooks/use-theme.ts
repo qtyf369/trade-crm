@@ -46,20 +46,19 @@ function applyScheme(scheme: ColorScheme) {
 }
 
 /**
- * 应用界面缩放。
+ * 界面缩放（浏览器级）。
  *
- * 浏览器自身的 Ctrl+滚轮 缩放无法被网页脚本控制，这里用 CSS zoom 实现等效效果：
- * 整个应用按比例缩放，且能随配置保存。用 zoom 而非 transform:scale，
- * 是因为 zoom 会同时改变布局占位，滚动与定位都保持正常。
+ * 说明：网页脚本无法设置浏览器自身的缩放（安全限制），CSS zoom 又只会把整个
+ * 页面按比例缩小、屏幕四周留白，观感与浏览器缩放不一致。
+ *
+ * 因此这里不再在页面内缩放，只负责「记住用户的偏好值」：
+ *   - 保存到 localStorage + 坚果云（与其他设置一起）
+ *   - exe 下次启动时读取该值，用 --force-device-scale-factor 打开浏览器，
+ *     得到与 Ctrl+滚轮 一致、内容重新排版并铺满屏幕的效果
  */
 function applyZoom(percent: number) {
   const root = document.documentElement;
-  if (percent === 100) {
-    root.style.zoom = '';
-    root.removeAttribute('data-ui-zoom');
-    return;
-  }
-  root.style.zoom = String(percent / 100);
+  // 不修改 zoom / transform，只打标记方便排查
   root.setAttribute('data-ui-zoom', String(percent));
 }
 

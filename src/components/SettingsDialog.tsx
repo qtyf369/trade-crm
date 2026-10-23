@@ -174,7 +174,7 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
               })}
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
-              用于屏幕较大或字体偏小时的整体缩放，设置会被记住
+              与浏览器 Ctrl+滚轮 缩放等效，下次启动 CRM 时生效并自动记住
             </p>
           </section>
         </div>

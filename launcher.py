@@ -124,9 +124,45 @@ def _pick_browser() -> tuple:
     return found[0]
 
 
+def _read_zoom_from_data() -> int:
+    """读取用户保存的缩放比例（data/ui_settings.json，缺省 100）"""
+    try:
+        import json as _json
+        path = os.path.join(os.path.dirname(os.path.abspath(sys.executable)), "data", "ui_settings.json")
+        if not os.path.isfile(path):
+            return 100
+        # 用 utf-8-sig 兼容带 BOM 的文件（Windows 记事本等工具会写入 BOM）
+        with open(path, "r", encoding="utf-8-sig") as f:
+            data = _json.load(f) or {}
+        z = int(data.get("zoom") or 100)
+        # 限制在合理范围，避免异常值把界面弄坏
+        if z < 50 or z > 200:
+            return 100
+        return z
+    except Exception:
+        return 100
+
+
 def _open_in_browser(url: str) -> str:
-    """用选定的浏览器打开页面，返回实际使用的方式（用于日志与提示）"""
+    """用选定的浏览器打开页面，返回实际使用的方式（用于日志与提示）
+
+    缩放通过 --force-device-scale-factor 传入，得到与浏览器 Ctrl+滚轮
+    一致的效果（内容重新排版、铺满屏幕），而不是把整个页面缩小后留白。
+    """
     import subprocess
+
+    zoom = _read_zoom_from_data()
+    scale = zoom / 100.0
+
+    def build_args(exe: str, force_new_window: bool) -> list:
+        args = [exe]
+        # 只有非 100% 才传，避免干扰用户自己的浏览器缩放习惯
+        if zoom != 100:
+            args.append(f"--force-device-scale-factor={scale:g}")
+        if force_new_window:
+            args.append("--new-window")
+        args.append(url)
+        return args
 
     # 用户可通过配置强制指定
     try:
@@ -136,7 +172,7 @@ def _open_in_browser(url: str) -> str:
             with open(cfg_path, "r", encoding="utf-8") as f:
                 force = (_json.load(f) or {}).get("browser_path")
             if force and os.path.isfile(force):
-                subprocess.Popen([force, url])
+                subprocess.Popen(build_args(force, False))
                 return f"指定浏览器：{force}"
     except Exception:
         pass
@@ -144,14 +180,15 @@ def _open_in_browser(url: str) -> str:
     name, path = _pick_browser()
     if path:
         try:
-            # 使用新窗口参数，避免复用异常实例
-            args = [path, "--new-window", url] if name == "Chrome" else [path, url]
-            subprocess.Popen(args)
-            return f"{name}：{path}"
+            # 非 100% 缩放时必须新开窗口，否则参数会被已运行实例忽略
+            force_new_window = name in ("Chrome", "Edge") and zoom != 100
+            subprocess.Popen(build_args(path, force_new_window))
+            suffix = f"（缩放 {zoom}%）" if zoom != 100 else ""
+            return f"{name}{suffix}：{path}"
         except Exception:
             pass
 
-    # 兜底：系统默认浏览器
+    # 兜底：系统默认浏览器（无法传缩放参数）
     try:
         webbrowser.open(url)
         return "系统默认浏览器"

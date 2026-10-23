@@ -1317,7 +1317,8 @@ def batch_followups(body: BatchIds):
 
 def load_config() -> Dict[str, Any]:
     try:
-        with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
+        # utf-8-sig 兼容带 BOM 的文件（用户手工编辑过配置的常见情况）
+        with open(CONFIG_PATH, 'r', encoding='utf-8-sig') as f:
             return json.load(f)
     except (OSError, ValueError):
         return {}
@@ -2142,7 +2143,8 @@ def _remote_settings_url(config: Dict[str, Any]) -> str:
 
 def _read_local_settings() -> Dict[str, Any]:
     try:
-        with open(SETTINGS_PATH, 'r', encoding='utf-8') as f:
+        # utf-8-sig 兼容带 BOM 的文件，避免手工编辑后读取失败
+        with open(SETTINGS_PATH, 'r', encoding='utf-8-sig') as f:
             data = json.load(f)
             if isinstance(data, dict):
                 return data
