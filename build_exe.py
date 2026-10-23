@@ -51,6 +51,13 @@ HIDDEN_IMPORTS = [
     "charset_normalizer",
     "idna",
     "certifi",
+    "pystray",
+    "pystray._win32",
+    "PIL",
+    "PIL.Image",
+    "PIL.ImageDraw",
+    "tkinter",
+    "tkinter.messagebox",
 ]
 
 # 需要一并打进 exe 的静态资源（源路径 -> exe 内目标路径）
@@ -62,7 +69,7 @@ DATAS = [
 
 EXCLUDES = [
     "tkinter.test", "test", "unittest", "pydoc_data",
-    "numpy", "pandas", "matplotlib", "scipy", "PIL",
+    "numpy", "pandas", "matplotlib", "scipy",
 ]
 
 
@@ -98,7 +105,7 @@ def main() -> None:
         "--distpath", DIST_DIR,
         "--workpath", BUILD_DIR,
         "--specpath", BUILD_DIR,
-        "--console",
+        "--noconsole",          # 无黑框：双击直接开浏览器
         "--noupx",
     ]
     for mod in HIDDEN_IMPORTS:

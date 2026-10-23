@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react';
 import { Sun, Moon, Monitor, Check } from 'lucide-react';
-import { useTheme, type ThemeMode, COLOR_SCHEMES, COLOR_SCHEME_META, type ColorScheme } from '@/hooks/use-theme';
+import {
+  useTheme, type ThemeMode, COLOR_SCHEMES, COLOR_SCHEME_META, type ColorScheme, ZOOM_LEVELS,
+} from '@/hooks/use-theme';
 import SchemeAvatar from '@/components/SchemeAvatar';
 import { Button } from '@/components/ui/button';
 import {
@@ -50,7 +52,7 @@ function SectionLabel({ children }: { children: ReactNode }) {
 /** 通用设置（主题等）。账号与同步在左上角头像菜单里 */
 export default function SettingsDialog({ open, onOpenChange }: Props) {
   // 主题即时生效并持久化，无需「保存」；「完成」仅用于关闭面板
-  const { mode, changeMode, scheme, changeScheme } = useTheme();
+  const { mode, changeMode, scheme, changeScheme, zoom, changeZoom } = useTheme();
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -146,6 +148,34 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
                 );
               })}
             </div>
+          </section>
+
+          {/* 界面缩放 */}
+          <section>
+            <SectionLabel>界面缩放</SectionLabel>
+            <div className="flex flex-wrap gap-2">
+              {ZOOM_LEVELS.map((z) => {
+                const active = zoom === z;
+                return (
+                  <button
+                    key={z}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => changeZoom(z)}
+                    className={`min-w-[62px] rounded-lg border px-3 py-2 text-sm font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                      active
+                        ? 'border-primary bg-primary/5 text-primary'
+                        : 'border-border hover:border-muted-foreground/40 hover:bg-muted/50'
+                    }`}
+                  >
+                    {z}%
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              用于屏幕较大或字体偏小时的整体缩放，设置会被记住
+            </p>
           </section>
         </div>
 
