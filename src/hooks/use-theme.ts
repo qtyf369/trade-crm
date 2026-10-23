@@ -21,13 +21,8 @@ export const COLOR_SCHEME_META: Record<ColorScheme, { label: string; emoji: stri
 
 export const COLOR_SCHEMES: ColorScheme[] = ['ocean', 'emerald', 'rose', 'amber', 'violet', 'celadon'];
 
-/** 可选界面缩放比例（%） */
-export const ZOOM_LEVELS = [100, 90, 80, 75, 67, 50] as const;
-export type ZoomLevel = typeof ZOOM_LEVELS[number];
-
 const MODE_KEY = 'crm-theme';
 const SCHEME_KEY = 'crm-color-scheme';
-const ZOOM_KEY = 'crm-ui-zoom';
 
 function resolve(mode: ThemeMode): 'light' | 'dark' {
   if (mode === 'system') {
@@ -45,29 +40,11 @@ function applyScheme(scheme: ColorScheme) {
   document.documentElement.setAttribute('data-color-scheme', scheme);
 }
 
-/**
- * 界面缩放（浏览器级）。
- *
- * 说明：网页脚本无法设置浏览器自身的缩放（安全限制），CSS zoom 又只会把整个
- * 页面按比例缩小、屏幕四周留白，观感与浏览器缩放不一致。
- *
- * 因此这里不再在页面内缩放，只负责「记住用户的偏好值」：
- *   - 保存到 localStorage + 坚果云（与其他设置一起）
- *   - exe 下次启动时读取该值，用 --force-device-scale-factor 打开浏览器，
- *     得到与 Ctrl+滚轮 一致、内容重新排版并铺满屏幕的效果
- */
-function applyZoom(percent: number) {
-  const root = document.documentElement;
-  // 不修改 zoom / transform，只打标记方便排查
-  root.setAttribute('data-ui-zoom', String(percent));
-}
-
 /** 把设置推送到后端（本地必定落盘，已绑定时同步到坚果云） */
-function pushSettings(payload: { mode?: ThemeMode; scheme?: ColorScheme; zoom?: number }) {
+function pushSettings(payload: { mode?: ThemeMode; scheme?: ColorScheme }) {
   const merged = {
     mode: payload.mode ?? (localStorage.getItem(MODE_KEY) as ThemeMode) ?? 'system',
     scheme: payload.scheme ?? (localStorage.getItem(SCHEME_KEY) as ColorScheme) ?? 'ocean',
-    zoom: payload.zoom ?? Number(localStorage.getItem(ZOOM_KEY) || 100),
   };
   // 失败静默：本地已保存，不打扰用户
   fetch('/api/settings', {
@@ -86,11 +63,6 @@ export function useTheme() {
   const [scheme, setScheme] = useState<ColorScheme>(() => {
     const saved = localStorage.getItem(SCHEME_KEY);
     return COLOR_SCHEMES.includes(saved as ColorScheme) ? (saved as ColorScheme) : 'ocean';
-  });
-
-  const [zoom, setZoom] = useState<number>(() => {
-    const saved = Number(localStorage.getItem(ZOOM_KEY));
-    return ZOOM_LEVELS.includes(saved as ZoomLevel) ? saved : 100;
   });
 
   /** 云端设置是否已合并过，避免重复请求 */
@@ -114,11 +86,6 @@ export function useTheme() {
           localStorage.setItem(SCHEME_KEY, s.scheme);
           setScheme(s.scheme);
         }
-        const z = Number(s.zoom);
-        if (ZOOM_LEVELS.includes(z as ZoomLevel)) {
-          localStorage.setItem(ZOOM_KEY, String(z));
-          setZoom(z);
-        }
       })
       .catch(() => {});
     return () => { alive = false; };
@@ -134,7 +101,6 @@ export function useTheme() {
   }, [mode]);
 
   useEffect(() => { applyScheme(scheme); }, [scheme]);
-  useEffect(() => { applyZoom(zoom); }, [zoom]);
 
   const changeMode = useCallback((next: ThemeMode) => {
     localStorage.setItem(MODE_KEY, next);
@@ -148,16 +114,8 @@ export function useTheme() {
     pushSettings({ scheme: next });
   }, []);
 
-  const changeZoom = useCallback((next: number) => {
-    if (!ZOOM_LEVELS.includes(next as ZoomLevel)) return;
-    localStorage.setItem(ZOOM_KEY, String(next));
-    setZoom(next);
-    pushSettings({ zoom: next });
-  }, []);
-
   return {
     mode, resolved: resolve(mode), changeMode,
     scheme, changeScheme,
-    zoom, changeZoom,
   };
 }
