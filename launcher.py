@@ -205,6 +205,48 @@ def _start_tray(on_exit) -> None:
         pass
 
 
+def _ensure_desktop_shortcut() -> None:
+    """首次运行自动在桌面创建快捷方式（只做一次，失败静默）
+
+    让用户解压后不必找 exe、也不必手动跑 bat，桌面上直接就有入口。
+    """
+    try:
+        exe = os.path.abspath(sys.executable)
+        exe_dir = os.path.dirname(exe)
+        marker = os.path.join(exe_dir, "data", ".shortcut_created")
+        if os.path.exists(marker):
+            return
+
+        desktop = os.path.join(os.path.expanduser("~"), "Desktop")
+        if not os.path.isdir(desktop):
+            # 部分系统桌面在 OneDrive 下
+            alt = os.path.join(os.path.expanduser("~"), "OneDrive", "Desktop")
+            if os.path.isdir(alt):
+                desktop = alt
+            else:
+                return
+
+        link = os.path.join(desktop, "外贸CRM.lnk")
+        if os.path.exists(link):
+            return
+
+        import subprocess
+        ps = (
+            "$s=(New-Object -ComObject WScript.Shell).CreateShortcut('%s');"
+            "$s.TargetPath='%s';$s.WorkingDirectory='%s';$s.IconLocation='%s';$s.Save()"
+            % (link, exe, exe_dir, exe)
+        )
+        subprocess.run(
+            ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps],
+            capture_output=True, timeout=20,
+        )
+        os.makedirs(os.path.dirname(marker), exist_ok=True)
+        with open(marker, "w", encoding="utf-8") as f:
+            f.write("1")
+    except Exception:
+        pass
+
+
 def main() -> int:
     # 已在运行：直接打开页面，不重复启动
     if _port_in_use():
@@ -214,6 +256,9 @@ def main() -> int:
         return 0
 
     import threading
+
+    # 首次运行自动建桌面快捷方式，用户下次可从桌面一键打开
+    threading.Thread(target=_ensure_desktop_shortcut, daemon=True).start()
 
     browser_used = {"how": ""}
 

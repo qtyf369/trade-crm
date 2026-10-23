@@ -73,57 +73,42 @@ EXCLUDES = [
 ]
 
 # 随绿色版一起分发的中文说明（写成常量便于维护）
-README_TEXT = """外贸 CRM 绿色版
-========================
+README_TEXT = """外贸 CRM  使用说明
+================================================
 
-一、怎么启动
-    双击本文件夹里的「启动外贸CRM.exe」
-    等 1-2 秒会自动打开浏览器，看到界面就可以用了。
-    退出：右下角系统托盘图标 → 右键 →「退出程序」
+【第一次用】就三步
+    1. 双击「启动外贸CRM.exe」
+    2. 等 2 秒，浏览器会自动打开
+    3. 直接用（客户数据会自动从云端同步下来）
 
-    想要桌面图标：双击「创建桌面快捷方式.bat」，桌面上就会出现「外贸CRM」。
+    就这样，不用注册、不用登录、不用设置任何东西。
 
-
-二、数据存在哪
-    全部在 本文件夹\\data 文件夹里：
-        trade_crm.db     客户和跟进记录
-        config.json      坚果云账号
-        ui_settings.json 主题、配色
-        backups\\         自动备份
-
-    整个文件夹复制走 = 完整备份。可以放 U 盘直接带走使用。
+    以后想再打开：双击桌面上的「外贸CRM」图标即可
+    （第一次启动时会自动帮你创建）。
 
 
-三、换电脑 / 多台电脑用
-    1. 把整个文件夹复制到新电脑，双击启动；
-    2. 在左上角头像菜单里绑定坚果云（首次需要）；
-    3. 点「同步数据」→ 选「融合」，把云端数据拉下来。
-
-    绑定坚果云后，各台电脑的数据会自动保持一致。
+【数据在哪】
+    就在本文件夹的 data 文件夹里。整个文件夹拷走 = 完整备份。
 
 
-四、更新到新版本（重要，请看清楚）
-
-    【推荐做法】保留数据更新 —— 数据不会丢
-        1) 先退出程序（托盘右键 → 退出程序）
-        2) 把新版本文件夹里的所有内容，复制到旧文件夹里，
-           选择「覆盖」。  ※ 不要动 data 文件夹
-        3) 启动即可，数据都在。
-
-    【不推荐】直接删掉旧文件夹再放新文件夹 —— 数据会被清空！
-        如果已经这么做了，用下面的办法找回：
-          a) 看旧文件夹还在不在回收站，还原出来即可；
-          b) 或者从坚果云同步回来：绑定坚果云后点「同步数据」→ 选「融合」。
-
-    更新前建议先在 设置 → 数据备份 里点一次「立即备份一份」。
+【换电脑】
+    把整个文件夹复制到新电脑，双击启动，数据自动同步。
 
 
-五、其他说明
-    · 显示大小：在浏览器里按 Ctrl + 加号/减号，浏览器会记住，下次一样。
-    · 备份与恢复：设置 → 数据备份，可以随时备份和还原。
-    · 请勿把本文件夹放在 C:\\Program Files 这类没有写入权限的位置，
-      否则数据会改存到 C:\\Users\\你的用户名\\AppData\\Local\\TradeCRM。
-    · 首次启动 Windows 可能弹出「已保护你的电脑」，点「更多信息」→「仍要运行」。
+【更新版本】
+    1. 先退出：右下角托盘图标 → 右键 →「退出程序」
+    2. 把新版本里的文件全部复制到本文件夹，选「覆盖」
+       ※ 千万别删 data 文件夹，那是你的数据
+    3. 启动即可
+
+
+【其他小提示】
+    · 字太小？ 在浏览器里按住 Ctrl 滚动滚轮，或按 Ctrl + 加号/减号，
+      浏览器会记住，下次打开还是这个大小。
+    · 想手动备份/还原：界面左侧「设置」→「数据备份」。
+    · 第一次启动如果 Windows 提示「已保护你的电脑」，
+      点「更多信息」→「仍要运行」。
+    · 不要把本文件夹放在 C:\\Program Files 里，放到 D 盘或桌面都行。
 """
 
 
@@ -196,6 +181,28 @@ def main() -> None:
     src_exe = os.path.join(app_dir, f"{APP_NAME}.exe")
     if os.path.exists(src_exe):
         os.replace(src_exe, os.path.join(app_dir, "启动外贸CRM.exe"))
+
+    # 预置坚果云配置：随包分发，用户解压后无需再手动绑定
+    src_cfg = os.path.join(BASE, "config.json")
+    if os.path.exists(src_cfg):
+        import json as _json
+        try:
+            with open(src_cfg, "r", encoding="utf-8-sig") as f:
+                cfg = _json.load(f)
+            preset = {
+                "webdav_url": cfg.get("webdav_url", ""),
+                "webdav_user": cfg.get("webdav_user", ""),
+                "webdav_pass": cfg.get("webdav_pass", ""),
+                "auto_sync": True,
+            }
+            # 放到 data 目录：首次启动即视为已绑定，自动拉取云端数据
+            preset_dir = os.path.join(app_dir, "data")
+            os.makedirs(preset_dir, exist_ok=True)
+            with open(os.path.join(preset_dir, "config.json"), "w", encoding="utf-8") as f:
+                _json.dump(preset, f, ensure_ascii=False, indent=2)
+            print("  已预置坚果云配置（用户无需手动绑定）")
+        except Exception as e:
+            print(f"  警告：预置配置失败 {e}")
 
     # 放入使用说明
     readme = os.path.join(app_dir, "使用说明.txt")

@@ -2439,16 +2439,57 @@ def backup_download(file: str = Query(..., description="备份文件名")):
 SYNC_INTERVAL = 120  # 秒；启动后每 2 分钟检查一次云端是否变化
 
 
-def _sync_worker() -> None:
-    """后台线程：定期比对云端指纹，仅在云端有更新时自动拉取融合。
+def _first_run_pull() -> None:
+    """首次启动自动从云端拉取数据，做到「解压双击就能看到自己的客户」
 
-    原则（安全优先）：
-    - 只在「云端比本地新」时才自动合并，避免把本地误覆盖
-    - 本地有未上传改动且云端也变了 → 不自动处理，留给用户选择
+    判定首次：本地从未同步过（无同步基线），且云端客户数多于本地。
+    此时直接用云端覆盖本地。仅执行一次，之后交给常规同步逻辑。
+    """
+    try:
+        config = load_config()
+        if not (config.get("webdav_url") and config.get("webdav_user") and config.get("webdav_pass")):
+            return
+        if _load_sync_state().get("base"):
+            return   # 已同步过，不再自动覆盖
+
+        local_counts = _counts(DB_PATH)
+        remote, _err = _remote_fingerprint_ex(config)
+        if remote is None or remote.get("size", 0) == 0:
+            return
+
+        tmp = None
+        try:
+            tmp = _download_remote_db(config)
+            if not tmp:
+                return
+            if _counts(tmp).get("customers", 0) > local_counts.get("customers", 0):
+                with _db_lock:
+                    shutil.copy2(tmp, DB_PATH)
+                with get_db() as db:
+                    migrate_countries(db)
+                    normalize_datetimes(db)
+                _mark_synced()
+        finally:
+            if tmp and os.path.exists(tmp):
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+    except Exception:
+        pass
+
+
+def _sync_worker() -> None:
+    """后台线程：首次自动拉取，之后定期双向同步
+
+    - 只有本地变了 → 自动上传（含断网期间积累的改动）
+    - 只有云端变了 → 自动拉取融合
+    - 两端都变了 → 留给用户选择，避免误覆盖
     - 任何异常都静默忽略，绝不影响主进程
     """
     import time as _time
-    _time.sleep(15)  # 启动后稍等，避免与首屏请求抢资源
+    _time.sleep(5)   # 稍等，避免与首屏请求抢资源
+    _first_run_pull()
     while True:
         try:
             config = load_config()
@@ -2456,7 +2497,7 @@ def _sync_worker() -> None:
                     and config.get("webdav_url") and config.get("webdav_user")
                     and config.get("webdav_pass")):
                 local = _db_fingerprint(DB_PATH) if os.path.exists(DB_PATH) else None
-                remote = _remote_fingerprint(config)
+                remote, _err = _remote_fingerprint_ex(config)
                 if local and remote and remote.get("size", 0) > 0:
                     state = _load_sync_state().get("base") or {}
                     same = (local["size"] == remote["size"]
@@ -2523,6 +2564,22 @@ if os.path.exists(DIST_DIR):
         )
 
 
+# ---------- 后台自动同步（模块级启动） ----------
+#
+# 注意：必须在这里启动，不能只放在 `if __name__ == "__main__"` 里。
+# 打包后入口是 launcher.py，它以 `import main` 的方式加载本模块，
+# 此时 __name__ 为 "main"，main 块不会执行 —— 会导致后台同步线程
+# 在 exe 版本里根本不启动（首次自动拉取也不会发生）。
+def _start_sync_thread() -> None:
+    try:
+        threading.Thread(target=_sync_worker, daemon=True).start()
+    except Exception:
+        pass
+
+
+_start_sync_thread()
+
+
 if __name__ == "__main__":
     import uvicorn
 
@@ -2537,8 +2594,5 @@ if __name__ == "__main__":
     # 自动打开浏览器（打包后由 exe 触发）
     if os.environ.get("CRM_NO_BROWSER") != "1":
         threading.Thread(target=_open_browser_when_ready, args=(url,), daemon=True).start()
-
-    # 后台自动同步
-    threading.Thread(target=_sync_worker, daemon=True).start()
 
     uvicorn.run(app, host="127.0.0.1", port=8000, log_level="warning")
