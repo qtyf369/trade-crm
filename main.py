@@ -97,6 +97,31 @@ SETTINGS_PATH = os.path.join(BASE_DIR, "ui_settings.json")
 os.makedirs(BASE_DIR, exist_ok=True)
 os.makedirs(BACKUP_DIR, exist_ok=True)
 
+
+# ---------- 代理处理（外贸场景常见：用户开着 Clash 等代理软件） ----------
+#
+# 隐患：Windows 的系统代理会被 urllib/requests 读取。若用户的代理配置里
+# 没把本地地址加进「不使用代理的列表」，访问 127.0.0.1:8000 也会被转发给
+# 代理服务器，导致拿到代理返回的 HTML 而不是接口数据，表现为「页面空白、
+# 接口报 JSON 解析错误」等怪问题。
+#
+# 对策：
+# 1) 明确把本地地址写进 no_proxy，保证程序访问自己永远直连
+# 2) 坚果云（外网）保持走系统代理，这样即使墙内也能连上
+def _setup_proxy_env() -> None:
+    local_hosts = "127.0.0.1,localhost,::1"
+    existing = os.environ.get("no_proxy") or os.environ.get("NO_PROXY") or ""
+    parts = [p.strip() for p in existing.split(",") if p.strip()]
+    for h in ("127.0.0.1", "localhost", "::1"):
+        if h not in parts:
+            parts.append(h)
+    value = ",".join(parts)
+    os.environ["no_proxy"] = value
+    os.environ["NO_PROXY"] = value
+
+
+_setup_proxy_env()
+
 # ---------- 数据库 ----------
 
 # 单连接多线程共享由 SQLite 自身串行化；这里再加一把进程内锁，
@@ -1528,16 +1553,13 @@ def sync_test(config: SyncConfig):
     if not config.webdav_url or not config.webdav_user:
         return {"ok": False, "message": "请先填写地址和账号"}
     try:
-        import requests
         folder_url = f"{config.webdav_url}/crm/"
-        requests.request('MKCOL', folder_url,
-                         auth=(config.webdav_user, config.webdav_pass), timeout=10)
+        wd_request('MKCOL', folder_url, config, timeout=10)
         test_url = f"{config.webdav_url}/crm/.crm_test"
-        res = requests.put(test_url, data=b'test',
-                           auth=(config.webdav_user, config.webdav_pass),
-                           headers={"Content-Type": "text/plain"}, timeout=10)
+        res = wd_request('PUT', test_url, config, data=b'test',
+                              headers={'Content-Type': 'text/plain'}, timeout=10)
         if res.status_code in (200, 201, 204):
-            requests.delete(test_url, auth=(config.webdav_user, config.webdav_pass), timeout=10)
+            wd_request('DELETE', test_url, config, timeout=10)
             return {"ok": True, "message": "连接成功！账号密码正确"}
         if res.status_code == 401:
             return {"ok": False, "message": "账号或密码错误（注意要用应用密码，不是登录密码）"}
@@ -1548,6 +1570,44 @@ def sync_test(config: SyncConfig):
 
 def _remote_db_url(config: Dict[str, Any]) -> str:
     return f"{config['webdav_url']}/crm/trade_crm.db"
+
+
+# ---------- WebDAV 请求统一封装（代理友好） ----------
+
+def _wd_auth(config: Any):
+    """取 WebDAV 认证信息，兼容 dict 与 pydantic 模型两种传法"""
+    if isinstance(config, dict):
+        return (config.get("webdav_user", ""), config.get("webdav_pass", ""))
+    return (getattr(config, "webdav_user", ""), getattr(config, "webdav_pass", ""))
+
+
+def wd_request(method: str, url: str, config: Dict[str, Any], **kwargs):
+    """发起 WebDAV 请求。
+
+    先按系统代理设置请求（用户开了代理时才能连外网）；
+    若因代理导致的连接失败，自动改为直连再试一次。
+
+    这样无论用户的代理怎么配，要么走代理连上，要么直连连上。
+    """
+    import requests
+
+    kwargs.setdefault("timeout", 30)
+    auth = _wd_auth(config)
+    last_exc = None
+
+    # 第一次：走系统代理（requests 默认会读 Windows 注册表的代理设置）
+    try:
+        return requests.request(method, url, auth=auth, **kwargs)
+    except Exception as e:
+        last_exc = e
+
+    # 第二次：绕过代理直连
+    try:
+        s = requests.Session()
+        s.trust_env = False
+        return s.request(method, url, auth=auth, **kwargs)
+    except Exception:
+        raise last_exc if last_exc else Exception("请求失败")
 
 
 def _db_fingerprint(path: str) -> Dict[str, Any]:
@@ -1575,11 +1635,8 @@ def _remote_fingerprint_ex(config: Dict[str, Any]) -> Tuple[Optional[Dict[str, A
     import requests
     import re as _re
     try:
-        res = requests.request(
-            "PROPFIND", f"{config['webdav_url']}/crm/",
-            auth=(config['webdav_user'], config['webdav_pass']),
-            headers={"Depth": "1"}, timeout=20,
-        )
+        res = wd_request('PROPFIND', f"{config['webdav_url']}/crm/", config,
+                         headers={'Depth': '1'}, timeout=20)
     except Exception as e:
         return None, f"网络不可达：{type(e).__name__}"
     if res.status_code == 401:
@@ -1655,8 +1712,7 @@ def _validate_db_file(path: str) -> None:
 def _download_remote_db(config: Dict[str, Any]) -> Optional[str]:
     """下载云端数据库到临时文件并校验；不存在返回 None"""
     import requests
-    res = requests.get(_remote_db_url(config),
-                       auth=(config['webdav_user'], config['webdav_pass']), timeout=60)
+    res = wd_request('GET', _remote_db_url(config), config, timeout=60)
     if res.status_code == 404:
         return None
     if res.status_code != 200:
@@ -1681,9 +1737,8 @@ def _upload_db(config: Dict[str, Any]) -> Dict[str, Any]:
         if size == 0:
             raise HTTPException(500, "本地数据库为空，已取消上传以避免覆盖云端数据")
         with open(snapshot, 'rb') as f:
-            res = requests.put(_remote_db_url(config), data=f,
-                               auth=(config['webdav_user'], config['webdav_pass']),
-                               headers={"Content-Type": "application/octet-stream"}, timeout=120)
+            res = wd_request('PUT', _remote_db_url(config), config, data=f,
+                             headers={"Content-Type": "application/octet-stream"}, timeout=120)
         if res.status_code not in (200, 201, 204):
             raise HTTPException(500, f"上传失败：HTTP {res.status_code} - {res.text[:200]}")
         return {"ok": True, "size": size}
@@ -1702,8 +1757,7 @@ def sync_upload():
         raise HTTPException(400, "请先配置WebDAV账号")
     try:
         import requests
-        requests.request('MKCOL', f"{config['webdav_url']}/crm/",
-                         auth=(config['webdav_user'], config['webdav_pass']), timeout=10)
+        wd_request('MKCOL', f"{config['webdav_url']}/crm/", config, timeout=10)
         return _upload_db(config)
     except HTTPException:
         raise
@@ -2237,8 +2291,7 @@ def get_profile():
         return {"bound": False, "exists": False, "nickname": "", "avatar": ""}
     try:
         import requests
-        res = requests.get(_remote_profile_url(config),
-                           auth=(config['webdav_user'], config['webdav_pass']), timeout=10)
+        res = wd_request('GET', _remote_profile_url(config), config, timeout=10)
         if res.status_code == 404:
             return {"bound": True, "exists": False, "nickname": "", "avatar": ""}
         if res.status_code != 200:
@@ -2266,12 +2319,11 @@ def save_profile(profile: ProfileData):
     try:
         import requests
         # 确保 /crm/ 文件夹存在
-        requests.request('MKCOL', f"{config['webdav_url']}/crm/",
-                         auth=(config['webdav_user'], config['webdav_pass']), timeout=10)
+        wd_request('MKCOL', f"{config['webdav_url']}/crm/", config, timeout=10)
         payload = json.dumps({"nickname": profile.nickname, "avatar": profile.avatar}, ensure_ascii=False)
-        res = requests.put(_remote_profile_url(config), data=payload.encode('utf-8'),
-                           auth=(config['webdav_user'], config['webdav_pass']),
-                           headers={"Content-Type": "application/json"}, timeout=15)
+        res = wd_request('PUT', _remote_profile_url(config), config,
+                          data=payload.encode('utf-8'),
+                          headers={'Content-Type': 'application/json'}, timeout=15)
         if res.status_code not in (200, 201, 204):
             raise HTTPException(500, f"保存失败：HTTP {res.status_code}")
         return {"ok": True}
@@ -2289,8 +2341,7 @@ def delete_profile():
         raise HTTPException(400, "请先绑定坚果云账号")
     try:
         import requests
-        res = requests.delete(_remote_profile_url(config),
-                              auth=(config['webdav_user'], config['webdav_pass']), timeout=15)
+        res = wd_request('DELETE', _remote_profile_url(config), config, timeout=15)
         if res.status_code not in (200, 204, 404):
             raise HTTPException(500, f"清除失败：HTTP {res.status_code}")
         return {"ok": True}
@@ -2356,8 +2407,7 @@ def get_settings():
     remote: Dict[str, Any] = {}
     try:
         import requests
-        res = requests.get(_remote_settings_url(config),
-                           auth=(config['webdav_user'], config['webdav_pass']), timeout=10)
+        res = wd_request('GET', _remote_settings_url(config), config, timeout=10)
         if res.status_code == 200:
             parsed = res.json()
             if isinstance(parsed, dict):
@@ -2396,12 +2446,10 @@ def save_settings(payload: SettingsPayload):
 
     try:
         import requests
-        requests.request('MKCOL', f"{config['webdav_url']}/crm/",
-                         auth=(config['webdav_user'], config['webdav_pass']), timeout=10)
+        wd_request('MKCOL', f"{config['webdav_url']}/crm/", config, timeout=10)
         body = json.dumps(data, ensure_ascii=False).encode('utf-8')
-        res = requests.put(_remote_settings_url(config), data=body,
-                           auth=(config['webdav_user'], config['webdav_pass']),
-                           headers={"Content-Type": "application/json"}, timeout=15)
+        res = wd_request('PUT', _remote_settings_url(config), config, data=body,
+                          headers={'Content-Type': 'application/json'}, timeout=15)
         if res.status_code not in (200, 201, 204):
             return {"ok": True, "synced": False, "reason": f"HTTP {res.status_code}"}
         return {"ok": True, "synced": True}

@@ -201,6 +201,21 @@ def _pick_browser() -> tuple:
     return found[0]
 
 
+def _browser_args(exe: str, url: str) -> list:
+    """构造浏览器启动参数
+
+    关键：加 --no-proxy-server 让浏览器**直连本地地址**。
+    外贸用户常常开着 Clash/V2Ray 等代理软件，若代理规则把 127.0.0.1 也接管，
+    页面会加载不出来（拿到代理返回的内容）。这个参数保证本地永远直连，
+    同时不影响访问外网时使用代理。
+    """
+    args = [exe]
+    if os.path.basename(exe).lower() in ("chrome.exe", "msedge.exe", "chromium.exe", "brave.exe"):
+        args.append("--no-proxy-server")
+    args.append(url)
+    return args
+
+
 def _open_in_browser(url: str) -> str:
     """用选定的浏览器打开页面，返回实际使用的方式（用于日志与提示）
 
@@ -217,7 +232,7 @@ def _open_in_browser(url: str) -> str:
             with open(cfg_path, "r", encoding="utf-8-sig") as f:
                 force = (_json.load(f) or {}).get("browser_path")
             if force and os.path.isfile(force):
-                subprocess.Popen([force, url])
+                subprocess.Popen(_browser_args(force, url))
                 return f"指定浏览器：{force}"
     except Exception:
         pass
@@ -225,7 +240,7 @@ def _open_in_browser(url: str) -> str:
     name, path = _pick_browser()
     if path:
         try:
-            subprocess.Popen([path, url])
+            subprocess.Popen(_browser_args(path, url))
             return f"{name}：{path}"
         except Exception:
             pass
