@@ -1921,14 +1921,15 @@ def update_sync_config(config: SyncConfig):
     # 绑定成功的瞬间立即做一次「首次同步」：
     # 用户是「先启动、后绑定」的，后台线程的首次拉取早在绑定前就跳过了，
     # 这里补上，否则会出现「绑定了但没反应、也没让用户选择」的情况。
+    first_run_pulled = False
     try:
-        _first_run_pull()
+        first_run_pulled = _first_run_pull()
     except Exception:
         pass
     try:
-        return {"ok": True, "inspect": sync_inspect()}
+        return {"ok": True, "first_run_pulled": first_run_pulled, "inspect": sync_inspect()}
     except Exception:
-        return {"ok": True, "inspect": None}
+        return {"ok": True, "first_run_pulled": first_run_pulled, "inspect": None}
 
 
 @app.post("/api/sync/test")
@@ -2891,10 +2892,11 @@ def backup_download(file: str = Query(..., description="备份文件名")):
 SYNC_INTERVAL = 120  # 秒；启动后每 2 分钟检查一次云端是否变化
 
 
-def _first_run_pull() -> None:
+def _first_run_pull() -> bool:
     """首次绑定/启动时自动从云端拉取数据，做到「绑定完就能看到自己的客户」
 
     判定首次：本地从未同步过（无同步基线）。
+    返回 True 表示本次确实用云端接管了本地（用于前端提示用户）。
 
     关键区分本地是不是「只有示例数据」：
     - 本地仅有示例数据（seed 的 3 条）→ 直接用云端覆盖，用户看不到中间态
@@ -2904,20 +2906,20 @@ def _first_run_pull() -> None:
     try:
         config = load_config()
         if not (config.get("webdav_url") and config.get("webdav_user") and config.get("webdav_pass")):
-            return
+            return False
         if _load_sync_state().get("base"):
-            return   # 已同步过，不再自动覆盖
+            return False   # 已同步过，不再自动覆盖
 
         local_counts = _counts(DB_PATH)
         remote, _err = _remote_fingerprint_ex(config)
         if remote is None or remote.get("size", 0) == 0:
-            return
+            return False
 
         tmp = None
         try:
             tmp = _download_remote_db(config)
             if not tmp:
-                return
+                return False
             remote_count = _counts(tmp).get("customers", 0)
             # 本地只有示例数据时，云端数据可以直接接管；
             # 本地有真实数据时不动，交给 sync_inspect 提示用户选择
@@ -2929,9 +2931,11 @@ def _first_run_pull() -> None:
                     normalize_datetimes(db)
                 # 已被云端完全接管，两端此时就是同一份数据，记录基线
                 _mark_synced()
+                return True
             # 否则（本地有真实数据）不记录基线：还没真正同步过，
             # 等用户选完「融合/以本地为准/以云端为准」后再由对应流程记录，
             # 否则基线会等于当前状态，后续同步判断就看不出变化了
+            return False
         finally:
             if tmp and os.path.exists(tmp):
                 try:
@@ -2939,7 +2943,7 @@ def _first_run_pull() -> None:
                 except OSError:
                     pass
     except Exception:
-        pass
+        return False
 
 
 def _sync_worker() -> None:

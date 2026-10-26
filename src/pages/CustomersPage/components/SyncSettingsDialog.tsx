@@ -48,6 +48,8 @@ export default function SyncSettingsDialog({ open, onOpenChange }: Props) {
   const [busy, setBusy] = useState(false);
   const [inspect, setInspect] = useState<InspectResult | null>(null);
   const [inspecting, setInspecting] = useState(false);
+  /** 覆盖类同步的二次确认（'local' | 'remote' | null） */
+  const [confirmOverwrite, setConfirmOverwrite] = useState<'local' | 'remote' | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -101,6 +103,9 @@ export default function SyncSettingsDialog({ open, onOpenChange }: Props) {
         return;
       }
       const bindResult = await res.json().catch(() => ({}));
+      // 后端绑定成功时已顺带完成「首次拉取」；first_run_pulled=true 表示
+      // 云端数据已自动接管本地（本地只有示例数据的情况）
+      const firstRunPulled = bindResult?.first_run_pulled === true;
       // 本地有未同步的昵称/头像时，绑定后立刻整体推送（以本地为准）
       const hasPending = localStorage.getItem('crm:profile_pending') === '1';
       if (hasPending) {
@@ -123,6 +128,15 @@ export default function SyncSettingsDialog({ open, onOpenChange }: Props) {
         });
       }
       onOpenChange(false);
+      if (firstRunPulled) {
+        // 云端数据已自动接管本地：明确告诉用户发生了什么，不用再选同步方式
+        toast.success('已绑定坚果云，并自动拉取了云端数据', {
+          description: '云端已有的客户已全部导入本机，之后两端会自动保持同步。',
+          duration: 8000,
+        });
+        setTimeout(() => window.location.reload(), 1200);
+        return;
+      }
       // 绑定完成后立即对比两端数据，让用户选择如何处理。
       // 后端在绑定成功时已顺带完成首次拉取，直接用返回的 inspect 结果。
       setMergeOpen(true);
@@ -132,7 +146,7 @@ export default function SyncSettingsDialog({ open, onOpenChange }: Props) {
         setInspect(inspect);
         setInspecting(false);
         if (inspect.status === 'remote_newer' || inspect.status === 'diverged') {
-          toast.info('已检测到云端数据，请选择如何处理');
+          toast.info('已检测到云端数据，建议选择「融合」保留两端所有数据');
         } else if (inspect.status === 'same') {
           toast.success('已绑定坚果云，本地与云端数据一致');
         } else {
@@ -374,7 +388,7 @@ export default function SyncSettingsDialog({ open, onOpenChange }: Props) {
                 </p>
               )}
 
-              {/* 操作选项 */}
+              {/* 操作选项：融合一键执行；覆盖类操作需二次确认（可能丢数据） */}
               <div className="space-y-2">
                 <Button
                   className="w-full justify-start" disabled={busy}
@@ -385,14 +399,14 @@ export default function SyncSettingsDialog({ open, onOpenChange }: Props) {
                 </Button>
                 <Button
                   variant="outline" className="w-full justify-start" disabled={busy}
-                  onClick={() => doSync('local')}
+                  onClick={() => setConfirmOverwrite('local')}
                 >
                   <Upload className="h-4 w-4" />
                   以本地为准：上传本地覆盖云端
                 </Button>
                 <Button
                   variant="outline" className="w-full justify-start" disabled={busy}
-                  onClick={() => doSync('remote')}
+                  onClick={() => setConfirmOverwrite('remote')}
                 >
                   <Download className="h-4 w-4" />
                   以云端为准：下载云端覆盖本地
@@ -407,6 +421,39 @@ export default function SyncSettingsDialog({ open, onOpenChange }: Props) {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setMergeOpen(false)} disabled={busy}>取消</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 覆盖操作二次确认：会丢一端数据，必须明确确认 */}
+      <Dialog open={confirmOverwrite !== null} onOpenChange={(o) => { if (!o) setConfirmOverwrite(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-destructive">确认覆盖操作</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm leading-relaxed">
+            {confirmOverwrite === 'local'
+              ? '「以本地为准」会用本机数据覆盖云端：云端上多出来的客户和跟进会被删除。'
+              : '「以云端为准」会用云端数据覆盖本机：本机上多出来的客户和跟进会被删除。'}
+          </p>
+          <p className="text-sm text-muted-foreground">
+            如果不确定两端各有什么，建议返回用「融合」，两端数据都会保留。
+          </p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmOverwrite(null)} disabled={busy}>
+              返回用融合
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={busy}
+              onClick={() => {
+                const choice = confirmOverwrite;
+                setConfirmOverwrite(null);
+                if (choice) doSync(choice);
+              }}
+            >
+              我确认，继续覆盖
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
