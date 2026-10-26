@@ -1,14 +1,12 @@
 @echo off
 chcp 936 >nul 2>&1
 cd /d "%~dp0"
-title 外贸CRM
 
 REM 若已在运行，直接打开页面，避免端口占用报错
 netstat -ano | findstr ":8000" | findstr "LISTENING" >nul 2>&1
 if not errorlevel 1 (
     echo 检测到 CRM 已在运行，正在为你打开页面...
     start "" "http://localhost:8000"
-    pause
     exit /b 0
 )
 
@@ -32,9 +30,6 @@ if errorlevel 1 (
     )
 )
 
-start "" "%~dp0loading.html"
-python main.py
-
-echo.
-echo 服务已停止，按任意键关闭本窗口。
-pause >nul
+REM 用 pythonw 启动：无控制台黑框；托盘图标右键退出 = 完全退出
+start "" pythonw main.py
+exit /b 0

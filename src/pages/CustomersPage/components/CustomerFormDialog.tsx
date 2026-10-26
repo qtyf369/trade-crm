@@ -32,6 +32,8 @@ interface Props {
   form: CustomerForm;
   setForm: (fn: (prev: CustomerForm) => CustomerForm) => void;
   onSubmit: () => void;
+  /** 编辑模式下的删除入口（行内删除按钮已移除，统一并入这里） */
+  onDelete?: () => void;
 }
 
 const emptyContact: ICustomerContact = {
@@ -86,8 +88,52 @@ function CountryInput({ value, onChange }: { value: string; onChange: (v: string
   );
 }
 
+/** 来源输入框：可自由输入，聚焦时下拉展示全部预设（阿里巴巴国际站/展会/Google/其他），打字过滤联想 */
+export function SourceInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onClickOutside = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, []);
+
+  // 联想：按输入过滤预设；无输入时展示全部
+  const matches = value
+    ? CUSTOMER_SOURCES.filter((s) => s.includes(value) && s !== value)
+    : [...CUSTOMER_SOURCES];
+
+  return (
+    <div className="relative" ref={ref}>
+      <Input
+        value={value}
+        onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        placeholder="点击选择或直接输入，如 展会名片（可留空）"
+        aria-label="来源"
+      />
+      {open && matches.length > 0 && (
+        <div className="absolute top-full mt-1 w-full bg-card border border-border rounded-md shadow-lg z-10 max-h-48 overflow-y-auto">
+          {matches.map((s) => (
+            <div
+              key={s}
+              className="px-3 py-2 text-sm hover:bg-muted cursor-pointer"
+              onMouseDown={(e) => { e.preventDefault(); onChange(s); setOpen(false); }}
+            >
+              {s}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function CustomerFormDialog({
-  open, onOpenChange, editing, form, setForm, onSubmit,
+  open, onOpenChange, editing, form, setForm, onSubmit, onDelete,
 }: Props) {
   const update = (patch: Partial<CustomerForm>) => setForm((prev) => ({ ...prev, ...patch }));
 
@@ -188,17 +234,9 @@ export default function CustomerFormDialog({
               </select>
             </div>
             <div className="grid gap-2">
-              <Label>来源</Label>
-              <select
-                className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-                value={form.source}
-                onChange={(e) => update({ source: e.target.value })}
-                aria-label="来源"
-              >
-                {CUSTOMER_SOURCES.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
+              <Label htmlFor="source">来源</Label>
+              {/* 可输入联想框：既能打字又能点选预设，无模式切换 */}
+              <SourceInput value={form.source} onChange={(v) => update({ source: v })} />
             </div>
           </div>
 
@@ -291,9 +329,21 @@ export default function CustomerFormDialog({
           </div>
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
-          <Button onClick={onSubmit}>保存</Button>
+        <DialogFooter className="sm:justify-between">
+          {/* 编辑模式：左侧删除入口（危险操作，二次确认在父级处理） */}
+          {editing && onDelete ? (
+            <Button
+              variant="ghost"
+              className="text-destructive hover:text-destructive hover:bg-destructive/10"
+              onClick={onDelete}
+            >
+              删除该客户
+            </Button>
+          ) : <span />}
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
+            <Button onClick={onSubmit}>保存</Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

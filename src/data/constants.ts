@@ -2,7 +2,13 @@
 
 export const CUSTOMER_SOURCES = ['阿里巴巴国际站', '展会', 'Google', '其他'] as const;
 
-export const CUSTOMER_LEVELS = ['', 'L0', 'L1', 'L2', 'L3', 'L4', '低质', '优质'] as const;
+/** 等级：L0-L4（阿里专用）+ 1星-5星（通用），旧值「低质/优质」仅展示兼容 */
+export const CUSTOMER_LEVELS = ['', 'L0', 'L1', 'L2', 'L3', 'L4', '1星', '2星', '3星', '4星', '5星'] as const;
+
+/** 旧等级 -> 星级（历史数据展示兼容） */
+export const LEVEL_LEGACY_MAP: Record<string, string> = {
+  '低质': '1星', '优质': '5星',
+};
 
 export const FOLLOWUP_TYPES = ['email', 'whatsapp', 'phone', 'visit', 'other'] as const;
 
@@ -19,13 +25,10 @@ export const STATUS_LABELS: Record<string, string> = {
 
 export const LEVEL_LABELS: Record<string, string> = {
   '': '未分级',
-  L0: 'L0',
-  L1: 'L1',
-  L2: 'L2',
-  L3: 'L3',
-  L4: 'L4',
-  '低质': '低质',
-  '优质': '优质',
+  L0: 'L0', L1: 'L1', L2: 'L2', L3: 'L3', L4: 'L4',
+  '1星': '1星', '2星': '2星', '3星': '3星', '4星': '4星', '5星': '5星',
+  // 旧等级展示兼容
+  '低质': '1星', '优质': '5星',
 };
 
 export const SOCIAL_LABELS: Record<string, string> = {

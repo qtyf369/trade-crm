@@ -12,6 +12,7 @@ import { CUSTOMER_STATUS_META, CUSTOMER_LEVEL_META, FOLLOWUP_TYPE_META } from '@
 import {
   CUSTOMER_LEVELS, FOLLOWUP_TYPES, STATUS_LABELS, LEVEL_LABELS, SOCIAL_LABELS, parseIssues,
 } from '@/data/constants';
+import { SourceInput } from '@/pages/CustomersPage/components/CustomerFormDialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -54,6 +55,9 @@ export default function CustomerDetailPage() {
   const [customTime, setCustomTime] = useState('');
   const [editingFollowUp, setEditingFollowUp] = useState<IFollowUp | null>(null);
   const [deleteFollowUpTarget, setDeleteFollowUpTarget] = useState<IFollowUp | null>(null);
+  // 删除整个客户
+  const [deleteCustomerOpen, setDeleteCustomerOpen] = useState(false);
+  const [deletingCustomer, setDeletingCustomer] = useState(false);
   const [pendingDeleteContact, setPendingDeleteContact] = useState<number | null>(null);
   const [form, setForm] = useState({
     type: 'email' as FollowUpType, content: '', nextFollowUpAt: '',
@@ -342,10 +346,21 @@ export default function CustomerDetailPage() {
                   </Button>
                 </>
               ) : (
-                <Button size="sm" variant="outline" onClick={startEdit}>
-                  <Pencil className="mr-1 h-4 w-4" />
-                  编辑
-                </Button>
+                <>
+                  <Button size="sm" variant="outline" onClick={startEdit}>
+                    <Pencil className="mr-1 h-4 w-4" />
+                    编辑
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                    onClick={() => setDeleteCustomerOpen(true)}
+                  >
+                    <Trash2 className="mr-1 h-4 w-4" />
+                    删除
+                  </Button>
+                </>
               )}
             </div>
           </div>
@@ -385,16 +400,11 @@ export default function CustomerDetailPage() {
                   />
                 </Field>
                 <Field label="来源">
-                  <select
-                    className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                  {/* 可输入联想框：既能打字又能点选预设，无模式切换 */}
+                  <SourceInput
                     value={editForm.source || ''}
-                    onChange={(e) => setEditForm({ ...editForm, source: e.target.value })}
-                    aria-label="来源"
-                  >
-                    {['阿里巴巴国际站', '展会', 'Google', '其他'].map((s) => (
-                      <option key={s} value={s}>{s}</option>
-                    ))}
-                  </select>
+                    onChange={(v) => setEditForm({ ...editForm, source: v })}
+                  />
                 </Field>
                 <Field label="客户等级">
                   <select
@@ -795,6 +805,40 @@ export default function CustomerDetailPage() {
             <div className="flex justify-end gap-2">
               <Button variant="outline" size="sm" onClick={() => setDeleteFollowUpTarget(null)}>取消</Button>
               <Button variant="destructive" size="sm" onClick={confirmDeleteFollowUp}>确认删除</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 删除客户确认 */}
+      {deleteCustomerOpen && customer && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-card rounded-lg shadow-lg p-6 w-full max-w-sm mx-4">
+            <h3 className="text-lg font-semibold mb-2">确认删除客户</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              将删除「<span className="font-medium text-foreground">{customer.company}</span>」及其全部跟进记录，删除后无法恢复。确定要删除吗？
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setDeleteCustomerOpen(false)} disabled={deletingCustomer}>
+                取消
+              </Button>
+              <Button
+                variant="destructive" size="sm"
+                disabled={deletingCustomer}
+                onClick={async () => {
+                  setDeletingCustomer(true);
+                  try {
+                    await api.deleteCustomer(customer.id);
+                    toast.success('客户已删除');
+                    navigate('/customers');
+                  } catch {
+                    toast.error('删除失败');
+                    setDeletingCustomer(false);
+                  }
+                }}
+              >
+                {deletingCustomer ? '删除中…' : '删除'}
+              </Button>
             </div>
           </div>
         </div>

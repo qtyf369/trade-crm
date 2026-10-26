@@ -28,7 +28,12 @@ STATUS_REVERSE_MAP: Dict[str, str] = {v: k for k, v in STATUS_MAP.items()}
 # 兼容旧数据里的简写
 STATUS_REVERSE_MAP['已报价'] = 'quoted'
 
-LEVELS: List[str] = ['', 'L0', 'L1', 'L2', 'L3', 'L4', '低质', '优质']
+# 等级：L0-L4（阿里专用）+ 1星-5星（通用客户）；「低质/优质」旧值仅展示兼容
+LEVELS: List[str] = ['', 'L0', 'L1', 'L2', 'L3', 'L4', '1星', '2星', '3星', '4星', '5星']
+# 旧等级 -> 星级（导入/展示兼容）
+LEVEL_LEGACY_MAP: Dict[str, str] = {
+    '低质': '1星', '优质': '5星',
+}
 VALID_LEVELS = set(LEVELS)
 
 SOCIAL_MAP: Dict[str, str] = {

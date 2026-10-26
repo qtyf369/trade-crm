@@ -13,6 +13,7 @@
 """
 
 import sqlite3
+import io
 import os
 import re
 import json
@@ -30,14 +31,15 @@ from typing import Optional, List, Dict, Any, Tuple, Union
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Depends
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 
 from constants import (
-    SOURCES, STATUS_MAP, STATUS_REVERSE_MAP, VALID_STATUSES, LEVELS, VALID_LEVELS,
+    SOURCES, STATUS_MAP, STATUS_REVERSE_MAP, VALID_STATUSES,
+    LEVELS, VALID_LEVELS, LEVEL_LEGACY_MAP,
     SOCIAL_MAP, SOCIAL_REVERSE_MAP, FOLLOWUP_TYPES, EXPORT_HEADERS,
     COUNTRY_EN_TO_CN, COMMON_COUNTRIES, VALID_COUNTRIES, CITY_COUNTRY_PREFIXES,
 )
@@ -121,6 +123,49 @@ def _setup_proxy_env() -> None:
 
 
 _setup_proxy_env()
+
+# ---------- 拼音搜索 ----------
+
+try:
+    from pypinyin import lazy_pinyin, Style
+    _HAS_PINYIN = True
+except ImportError:
+    _HAS_PINYIN = False
+
+
+def _build_search_text(company: str, contact: str, products: str = '') -> str:
+    """构造客户的可搜索文本：原文 + 全拼 + 拼音首字母（小写）
+
+    例：公司「永康市华艺工贸」->
+        原文   永康市华艺工贸
+        全拼   yongkangshi...（连打）+ yongkangshi huayi gongmao（分词）
+        首字母  ykshygm
+
+    pypinyin 缺失时退化为纯原文（搜索仍可用，只是没有拼音匹配）。
+    """
+    parts = [company or '', contact or '', products or '']
+    if not _HAS_PINYIN:
+        return ' '.join(p for p in parts if p).lower()
+
+    out = []
+    for text in parts:
+        if not text:
+            continue
+        out.append(text)
+        try:
+            full = lazy_pinyin(text, style=Style.NORMAL)            # 每个字/词的拼音
+            initials = lazy_pinyin(text, style=Style.FIRST_LETTER)  # 首字母
+            out.append(''.join(full))       # 连打：yongkangshi...
+            out.append(' '.join(full))      # 分词：yongkangshi huayi
+            out.append(''.join(initials))   # 首字母：ykshygm
+        except Exception:
+            pass
+    return ' '.join(o for o in out if o).lower()
+
+
+def _is_ascii_letters(s: str) -> bool:
+    """搜索词是否纯英文字母（决定要不要做拼音匹配）"""
+    return bool(s) and all('a' <= ch <= 'z' for ch in s.lower())
 
 # ---------- 数据库 ----------
 
@@ -232,6 +277,7 @@ def init_db():
             "ALTER TABLE customers ADD COLUMN starred INTEGER DEFAULT 0",
             "ALTER TABLE customers ADD COLUMN data_issues TEXT DEFAULT '[]'",
             "ALTER TABLE customers ADD COLUMN updated_at TEXT DEFAULT ''",
+            "ALTER TABLE customers ADD COLUMN search_text TEXT DEFAULT ''",
             "ALTER TABLE followups ADD COLUMN updated_at TEXT DEFAULT ''",
         ):
             try:
@@ -243,16 +289,43 @@ def init_db():
         db.execute("CREATE INDEX IF NOT EXISTS idx_followups_customer ON followups(customer_id)")
         db.execute("CREATE INDEX IF NOT EXISTS idx_followups_created ON followups(created_at)")
         db.execute("CREATE INDEX IF NOT EXISTS idx_customers_company ON customers(company)")
+        db.execute("CREATE INDEX IF NOT EXISTS idx_customers_search ON customers(search_text)")
 
         # 回填 updated_at：老数据该字段为空，用 created_at 兜底
         db.execute("UPDATE customers SET updated_at = created_at WHERE updated_at IS NULL OR updated_at = ''")
         db.execute("UPDATE followups SET updated_at = created_at WHERE updated_at IS NULL OR updated_at = ''")
+
+        _backfill_search_text(db)
 
         migrate_countries(db)
         migrate_legacy_contacts(db)
         migrate_levels(db)
         migrate_statuses(db)
         normalize_datetimes(db)
+
+
+def _backfill_search_text(db) -> None:
+    """重算全部客户的 search_text（幂等；换库/升级/融合后调用）
+
+    直接全量重算，避免依赖旧值判断是否为空——融合后字段可能被覆盖，
+    只查空值会漏掉 company 变了但 search_text 还是旧拼音的行。
+    """
+    rows = db.execute(
+        "SELECT id, company, contact, products FROM customers"
+    ).fetchall()
+    for r in rows:
+        st = _build_search_text(r['company'], r['contact'], r['products'] or '')
+        db.execute("UPDATE customers SET search_text = ? WHERE id = ?", (st, r['id']))
+
+
+def _update_search_text(db, cid: str) -> None:
+    """客户增改后重算该客户的 search_text"""
+    r = db.execute(
+        "SELECT company, contact, products FROM customers WHERE id = ?", (cid,)
+    ).fetchone()
+    if r:
+        st = _build_search_text(r['company'], r['contact'], r['products'] or '')
+        db.execute("UPDATE customers SET search_text = ? WHERE id = ?", (st, cid))
 
 
 def migrate_countries(db):
@@ -438,19 +511,18 @@ def validate_customer(db, data: Dict[str, Any], cid: Optional[str] = None) -> Li
 
     country = normalize_country(data.get('country') or '')
     if country not in VALID_COUNTRIES:
-        issues.append(f"国家不规范：{data.get('country') or '(空)'}")
+        issues.append(f"国家不规范：{data.get('country') or '(空)'}，导入后已标红待处理")
 
-    source = (data.get('source') or '').strip()
-    if source not in SOURCES:
-        issues.append(f"来源不规范：{source or '(空)'}")
+    # 来源：自由文本，留空即留空（不强行填默认值）；展示层空值显示「—」
+    data['source'] = (data.get('source') or '').strip()
 
     status = (data.get('status') or '').strip()
     if status not in VALID_STATUSES:
         issues.append(f"状态不规范：{status or '(空)'}")
 
-    level = data.get('level') or ''
-    if level not in VALID_LEVELS:
-        issues.append(f"等级不规范：{level}")
+    # 等级：L0-L4（阿里专用）/ 1星-5星（通用）均合法；旧值「低质/优质」自动转星，乱值记未分级
+    level = (data.get('level') or '').strip()
+    data['level'] = LEVEL_LEGACY_MAP.get(level, level if level in VALID_LEVELS else '')
 
     # 邮箱重复：与其它客户的任一联系人比对（精确匹配，指出重复对象）
     emails = [
@@ -793,6 +865,7 @@ SORTABLE = {
 
 def row_to_customer(row) -> Dict[str, Any]:
     d = dict(row)
+    d.pop('search_text', None)  # 内部索引字段，不下发给前端
     d['contacts'] = parse_contacts(d.get('contacts'))
     d['starred'] = int(d.get('starred') or 0)
     try:
@@ -821,12 +894,23 @@ def query_customers(
     params: List[Any] = []
 
     if search:
-        like = f"%{search.strip()}%"
-        where.append(
+        term = search.strip()
+        like = f"%{term}%"
+        # 原文匹配：公司/联系人/国家/联系人明细/产品/备注相关字段
+        text_clause = (
             "(c.company LIKE ? OR c.contact LIKE ? OR c.country LIKE ? "
             "OR c.contacts LIKE ? OR c.products LIKE ?)"
         )
-        params.extend([like, like, like, like, like])
+        if _is_ascii_letters(term) and _HAS_PINYIN:
+            # 纯英文字母：额外匹配拼音（全拼连打 / 首字母），
+            # 如 ykshygm 命中「永康市华艺」、huayi 命中「华艺」
+            where.append(
+                f"({text_clause} OR c.search_text LIKE ?)"
+            )
+            params.extend([like, like, like, like, like, f"%{term.lower()}%"])
+        else:
+            where.append(text_clause)
+            params.extend([like, like, like, like, like])
 
     for column, values in (
         ('c.country', countries),
@@ -1023,6 +1107,7 @@ def create_customer(c: Customer):
                 int(c.starred or 0), json.dumps(issues, ensure_ascii=False), ts,
             ),
         )
+        _update_search_text(db, cid)
     return {"id": cid}
 
 
@@ -1053,6 +1138,7 @@ def update_customer(cid: str, c: Customer):
                 json.dumps(issues, ensure_ascii=False), ts, cid,
             ),
         )
+        _update_search_text(db, cid)
     return {"ok": True, "updated_at": ts}
 
 
@@ -1139,6 +1225,164 @@ EXPORT_STYLES = {
 }
 
 HEADER_ROW = 4
+
+# 模板/导入共用的列说明（与 EXPORT_HEADERS 顺序一一对应，不含"序号"列）
+# (表头, 是否必填, 填写说明)
+TEMPLATE_COLUMNS: List[Tuple[str, bool, str]] = [
+    ('公司名称', True,  '必填。同一公司的多个联系人写多行，公司名可只在第一行填写'),
+    ('国家', False, '中文国家名，如「美国」「德国」。留空视为「未知」'),
+    ('来源', False, '自由填写，如：阿里巴巴国际站、展会、Google、老客户介绍。留空即留空（列表显示「—」）'),
+    ('等级', False, '阿里客户填 L0-L4；其他客户填 1星-5星。匹配不上（旧的「低质/优质」自动转星）记未分级'),
+    ('状态', False, '可选值：新线索、初步沟通、已报价未成交、谈判中、已成交、已流失。默认「新线索」'),
+    ('主要产品', False, '如：不锈钢餐具、保温杯'),
+    ('备注', False, '客户偏好、沟通要点等自由文本'),
+    ('联系人姓名', False, '第一个联系人会作为主要联系人；多个联系人写多行'),
+    ('职位', False, '如：采购经理'),
+    ('邮箱', False, '如 john@company.com。同一邮箱出现在多个公司会被标记提醒'),
+    ('电话', False, '建议文本格式填写，避免号码变成科学计数法'),
+    ('社交软件', False, '可选值：WhatsApp、微信、其他'),
+    ('社交账号', False, '对应社交软件的账号'),
+    ('最近跟进日期', False, '每行一条跟进记录；同一客户多写几行即可导入多条。格式随意：2026-1-8、2026/1/8、Excel 日期都行'),
+    ('最近跟进内容', False, '该次跟进说了什么；与日期配套填写'),
+    ('创建时间', False, '留空则自动记为导入时间'),
+]
+
+
+@app.get("/api/import/template")
+def import_template():
+    """生成导入模板 Excel：说明页 + 填写页（表头、示例、下拉、日期保护）"""
+    wb = Workbook()
+
+    # ===== 第 1 页：填写说明 =====
+    ws0 = wb.active
+    ws0.title = "填写说明"
+    ws0.column_dimensions['A'].width = 14
+    ws0.column_dimensions['B'].width = 10
+    ws0.column_dimensions['C'].width = 90
+
+    t = ws0.cell(row=1, column=1, value="外贸CRM · 导入模板")
+    t.font = Font(name=FONT_NAME, size=16, bold=True, color="1F4E79")
+    tips = [
+        "1. 在「客户数据」表里填写客户信息，蓝色表头列不要删改、不要调整顺序。",
+        "2. 灰色示例行（前 3 行）填完自己的数据后可以删掉。",
+        "3. 同一公司有多个联系人：写多行，公司名只在第一行填写（往下留空自动沿用上一行）。",
+        "4. 同一公司有多条跟进记录：也是写多行，每行一条「日期+内容」，重复的会自动去重。",
+        "5. 只想录入部分列？其他列留空即可，不必删除表头。",
+        "6. 日期列不挑格式：2026-1-8、2026/1/8、2026年1月8日、Excel 日期单元格都能识别。",
+        "7. 电话、邮箱列已预设文本格式，长号码不会变成科学计数法。",
+        "8. 「状态」「社交软件」列已设置下拉选项；来源和等级自由填写，系统会自动匹配。",
+        "9. 国家系统会自动匹配常见国家名；匹配不上的会在列表里标红提示，导入后再补充。",
+        "10. 填完后保存，回到系统点「导入Excel」选择这个文件。",
+        "11. 公司名与已有客户重复的行会自动跳过，不会重复导入。",
+    ]
+    for i, tip in enumerate(tips, 3):
+        c = ws0.cell(row=i, column=1, value=tip)
+        c.font = Font(name=FONT_NAME, size=11)
+        c.alignment = Alignment(vertical="center", wrap_text=False)
+        ws0.row_dimensions[i].height = 22
+
+    ws0.cell(row=14, column=1, value="各列填写说明：").font = Font(
+        name=FONT_NAME, size=12, bold=True, color="1F4E79")
+    hdr = ws0.cell(row=15, column=1, value="列名")
+    hdr.font = Font(name=FONT_NAME, size=10, bold=True, color="FFFFFF")
+    hdr.fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+    req = ws0.cell(row=15, column=2, value="必填")
+    req.font = Font(name=FONT_NAME, size=10, bold=True, color="FFFFFF")
+    req.fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+    desc = ws0.cell(row=15, column=3, value="说明")
+    desc.font = Font(name=FONT_NAME, size=10, bold=True, color="FFFFFF")
+    desc.fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+    for i, (name, required, note) in enumerate(TEMPLATE_COLUMNS, 16):
+        ws0.cell(row=i, column=1, value=name).font = Font(name=FONT_NAME, size=10)
+        rc = ws0.cell(row=i, column=2, value="是" if required else "")
+        rc.font = Font(name=FONT_NAME, size=10, color="C00000" if required else "999999")
+        rc.alignment = Alignment(horizontal="center")
+        nc = ws0.cell(row=i, column=3, value=note)
+        nc.font = Font(name=FONT_NAME, size=10, color="555555")
+        nc.alignment = Alignment(vertical="center", wrap_text=True)
+        ws0.row_dimensions[i].height = 20
+
+    # ===== 第 2 页：客户数据 =====
+    ws = wb.create_sheet("客户数据")
+    S = EXPORT_STYLES
+    headers = [c[0] for c in TEMPLATE_COLUMNS]  # 不含"序号"，导入时按表头名定位
+    num_cols = len(headers)
+
+    for col, h in enumerate(headers, 1):
+        cell = ws.cell(row=HEADER_ROW, column=col, value=h)
+        cell.font = S['header_font']
+        cell.fill = S['header_fill']
+        cell.alignment = S['header_alignment']
+        cell.border = S['header_border']
+    ws.row_dimensions[HEADER_ROW].height = 28
+
+    # 示例行（灰底斜体，导入时后端按"示例公司"自动忽略）
+    # 第 5 行：客户 A 的第一个联系人（含全部时间列示例）
+    # 第 6 行：同一客户 A 的第二个联系人 —— 公司/国家等列留空，自动沿用上一行
+    # 第 7 行：客户 B，时间列演示三种等价格式（2026-1-8、Excel 日期、2026/1/10）
+    from datetime import date as _date
+    samples = [
+        ["示例公司A（填完删掉这3行）", "美国", "阿里巴巴国际站", "L2", "初步沟通",
+         "保温杯、不锈钢餐具", "样品单客户，已寄样", "John Smith", "采购经理",
+         "john@example.com", "555-0100-123", "WhatsApp", "+15550100",
+         "2026-1-8", "问了价格和MOQ", "2026-1-2"],
+        ["", "", "", "", "", "", "", "Jane Roe", "业务员",
+         "jane@example.com", "555-0100-456", "", "",
+         "", "换了个对接人继续谈", ""],
+        ["示例公司B", "德国", "老客户介绍", "4星", "已报价未成交",
+         "不锈钢餐具", "", "Hans", "总经理",
+         "hans@example.com", "49-170-1234567", "WhatsApp", "+491701234",
+         _date(2026, 1, 10), "日期格式：文本、斜杠、Excel日期格都能识别", "2026/1/3"],
+    ]
+    for r, sample in enumerate(samples, HEADER_ROW + 1):
+        for col, v in enumerate(sample, 1):
+            c = ws.cell(row=r, column=col, value=v)
+            c.font = Font(name=FONT_NAME, size=10, italic=True, color="999999")
+            c.fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+            c.alignment = S['center_alignment']
+        # 时间列示例统一为文本格式显示，避免用户看到示例被 Excel 转成自己的区域格式
+        for col in (15, 17):  # 最近跟进日期 O、创建时间 Q
+            ws.cell(row=r, column=col).number_format = '@'
+
+    # 数据区：电话/邮箱列设为文本格式，防止长号码变科学计数法
+    from openpyxl.utils import get_column_letter
+    text_cols = {11, 12}  # 邮箱 K、电话 L
+    for col in text_cols:
+        letter = get_column_letter(col)
+        for r in range(HEADER_ROW + 1, HEADER_ROW + 201):
+            ws.cell(row=r, column=col).number_format = '@'
+
+    # 下拉选项（状态 / 社交软件）：来源与等级自由填写，靠导入匹配兜底
+    dvs = [
+        ('F', '"新线索,初步沟通,已报价未成交,谈判中,已成交,已流失"'),
+        ('M', '"WhatsApp,微信,其他"'),
+    ]
+    from openpyxl.worksheet.datavalidation import DataValidation
+    for letter, formula in dvs:
+        dv = DataValidation(type="list", formula1=formula, allow_blank=True, showErrorMessage=False)
+        ws.add_data_validation(dv)
+        dv.add(f"{letter}{HEADER_ROW + 1}:{letter}{HEADER_ROW + 200}")
+
+    # 列宽
+    widths = {'A': 26, 'B': 12, 'C': 16, 'D': 18, 'E': 8, 'F': 14,
+              'G': 22, 'H': 30, 'I': 12, 'J': 12, 'K': 26, 'L': 16,
+              'M': 12, 'N': 16, 'O': 13, 'P': 35, 'Q': 12}
+    for letter, w in widths.items():
+        if letter <= get_column_letter(num_cols):
+            ws.column_dimensions[letter].width = w
+
+    # 冻结表头；默认激活「客户数据」sheet（用户打开先看到要填的表）
+    ws.freeze_panes = f"A{HEADER_ROW + 3}"
+    wb.active = wb.sheetnames.index("客户数据")
+
+    out = io.BytesIO()
+    wb.save(out)
+    out.seek(0)
+    return Response(
+        content=out.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=import_template.xlsx"},
+    )
 
 
 @app.get("/api/export")
@@ -1297,9 +1541,83 @@ def export_excel(
 
 # ---------- Excel 导入 ----------
 
+def _cell_str(v: Any) -> str:
+    """单元格值转干净的文本：去首尾空白，浮点整数去掉 .0，None/纯空返回空串"""
+    if v is None:
+        return ''
+    if isinstance(v, float) and v.is_integer():
+        v = int(v)
+    s = str(v).strip()
+    return '' if s.lower() == 'none' else s
+
+
+def _excel_serial_to_date(serial: float) -> str:
+    """Excel 日期序列号（1900 体系）转 YYYY-MM-DD"""
+    try:
+        from datetime import timedelta
+        base = datetime(1899, 12, 30)  # Excel 纪元修正
+        return (base + timedelta(days=int(serial))).strftime("%Y-%m-%d")
+    except (ValueError, OverflowError):
+        return ''
+
+
+def _cell_date(v: Any) -> str:
+    """日期列归一：datetime 对象 / Excel 序列号 / 各种文本格式 → YYYY-MM-DD"""
+    if v is None or v == '':
+        return ''
+    if isinstance(v, datetime):
+        return v.strftime("%Y-%m-%d")
+    if isinstance(v, date):
+        return v.strftime("%Y-%m-%d")
+    if isinstance(v, (int, float)) and 20000 < float(v) < 80000:
+        # 合理的 Excel 日期序列号范围（1954~2119 年）
+        return _excel_serial_to_date(float(v))
+    s = _cell_str(v)
+    if not s:
+        return ''
+    # 2026/1/30、2026-1-30、2026.1.30 → 2026-01-30
+    m = re.match(r'^(\d{4})[/.\-年](\d{1,2})[/.\-月](\d{1,2})日?$', s)
+    if m:
+        try:
+            d = date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+            return d.strftime("%Y-%m-%d")
+        except ValueError:
+            return s
+    return date_only(s)
+
+
+def _cell_datetime(v: Any) -> str:
+    """时间列归一：datetime 对象 / 序列号 / 文本 → YYYY-MM-DD HH:MM:SS"""
+    if v is None or v == '':
+        return ''
+    if isinstance(v, datetime):
+        return v.strftime("%Y-%m-%d %H:%M:%S")
+    if isinstance(v, (int, float)) and 20000 < float(v) < 80000:
+        d = _excel_serial_to_date(float(v))
+        return f"{d} 00:00:00" if d else ''
+    s = _cell_str(v)
+    return normalize_dt(s) if s else ''
+
+
+def _cell_phone(v: Any) -> str:
+    """电话/号码列归一：Excel 数字单元格里 5550100123 会读成浮点 5550100123.0，
+    直接 str() 没问题，但 1.2E+10 这类科学计数法要还原成整串数字"""
+    if v is None:
+        return ''
+    if isinstance(v, (int, float)):
+        if float(v).is_integer():
+            return str(int(v))
+        return repr(v).rstrip('0').rstrip('.')
+    return _cell_str(v)
+
+
 @app.post("/api/import")
 async def import_excel(file: UploadFile = File(...)):
-    """导入导出的 Excel。同名公司跳过；不合规数据记入 data_issues。"""
+    """导入导出的 Excel。同名公司跳过；不合规数据记入 data_issues。
+
+    单元格容错：Excel 里手动输入的日期可能是 datetime 对象、数字（1900 序列）、
+    浮点电话号码（5550100123.0）等，这里统一做类型归一，避免乱码/科学计数法入库。
+    """
     if not file.filename or not file.filename.lower().endswith('.xlsx'):
         raise HTTPException(400, "请上传 .xlsx 文件")
 
@@ -1314,21 +1632,39 @@ async def import_excel(file: UploadFile = File(...)):
             wb = load_workbook(tmp_path, read_only=True, data_only=True)
         except Exception:
             raise HTTPException(400, "无法读取 Excel 文件，请确认文件未损坏")
-        ws = wb.active
-
+        # 模板有两个 sheet（填写说明/客户数据）：优先找带表头的那个
+        ws = None
         header_row = None
-        for row_idx in range(1, 11):
-            if ws.cell(row=row_idx, column=1).value == '序号':
-                header_row = row_idx
+        for sheet in wb.worksheets:
+            for row_idx in range(1, 11):
+                first = _cell_str(sheet.cell(row=row_idx, column=1).value)
+                if first == '序号' or first == '公司名称':
+                    ws, header_row = sheet, row_idx
+                    break
+            if ws:
                 break
-        if not header_row:
-            raise HTTPException(400, "未找到表头，请使用导出的Excel模板")
+        if not ws:
+            raise HTTPException(400, "未找到表头行。请使用系统导出的Excel或导入模板（表头行不能删改）")
+
+        # 按表头列名定位各字段列（模板与导出格式都兼容），找不到的列取 None
+        col_map: Dict[str, int] = {}
+        for col_idx in range(1, 25):
+            name = _cell_str(ws.cell(row=header_row, column=col_idx).value)
+            if name:
+                col_map[name] = col_idx
+
+        def val(row, name: str) -> Any:
+            idx = col_map.get(name)
+            return row[idx - 1] if idx and idx - 1 < len(row) else None
 
         # 按公司名分组，兼容空公司名（继承上一行）
         customers_map: Dict[str, Dict[str, Any]] = {}
         last_company = None
         for row in ws.iter_rows(min_row=header_row + 1, values_only=True):
-            company = str(row[1] or '').strip()
+            company = _cell_str(val(row, '公司名称'))
+            # 跳过模板自带的示例行
+            if company.startswith('示例公司'):
+                continue
             if not company:
                 company = last_company
                 if not company:
@@ -1338,27 +1674,36 @@ async def import_excel(file: UploadFile = File(...)):
 
             entry = customers_map.setdefault(company, {
                 'company': company,
-                'country': row[2] or '',
-                'source': row[3] or '',
-                'level': row[4] or '',
-                'status': STATUS_REVERSE_MAP.get(str(row[5] or '').strip(), 'lead'),
-                'products': row[6] or '',
-                'note': row[7] or '',
+                'country': _cell_str(val(row, '国家')),
+                'source': _cell_str(val(row, '来源')),
+                'level': _cell_str(val(row, '等级')),
+                'status': STATUS_REVERSE_MAP.get(_cell_str(val(row, '状态')), 'lead'),
+                'products': _cell_str(val(row, '主要产品')),
+                'note': _cell_str(val(row, '备注')),
                 'contacts': [],
-                'last_followup_date': date_only(row[14]) if row[14] else '',
-                'last_followup_content': row[15] or '',
-                'created_at': normalize_dt(row[16]) if row[16] else '',
+                'followups': [],  # 该客户的全部跟进（每行一条，去重后入库）
+                'created_at': _cell_datetime(val(row, '创建时间')),
             })
 
-            contact_name = str(row[8] or '').strip()
+            # 跟进记录：每个 Excel 行都可以带一条「日期+内容」，
+            # 同一客户写多行（公司名留空沿用）即可导入多条历史跟进
+            fu_date = _cell_date(val(row, '最近跟进日期'))
+            fu_content = _cell_str(val(row, '最近跟进内容'))
+            if fu_date or fu_content:
+                entry['followups'].append({
+                    'date': fu_date,
+                    'content': fu_content,
+                })
+
+            contact_name = _cell_str(val(row, '联系人姓名'))
             if contact_name:
                 entry['contacts'].append({
                     'name': contact_name,
-                    'position': str(row[9] or ''),
-                    'email': str(row[10] or ''),
-                    'phone': str(row[11] or ''),
-                    'social': SOCIAL_REVERSE_MAP.get(str(row[12] or '').strip(), str(row[12] or '')),
-                    'socialAccount': str(row[13] or ''),
+                    'position': _cell_str(val(row, '职位')),
+                    'email': _cell_str(val(row, '邮箱')),
+                    'phone': _cell_phone(val(row, '电话')),
+                    'social': SOCIAL_REVERSE_MAP.get(_cell_str(val(row, '社交软件')), _cell_str(val(row, '社交软件'))),
+                    'socialAccount': _cell_phone(val(row, '社交账号')),
                 })
         wb.close()
 
@@ -1414,13 +1759,20 @@ async def import_excel(file: UploadFile = File(...)):
                         json.dumps(issues, ensure_ascii=False), ts,
                     ),
                 )
-                if data['last_followup_content']:
-                    fu_ts = data['last_followup_date'] or ts
+                _update_search_text(db, cid)
+                # 跟进记录：按 (日期, 内容) 去重后全部入库；日期空的内容行记导入时间
+                seen_fu = set()
+                for fu in data.get('followups', []):
+                    sig = (fu['date'], fu['content'])
+                    if sig in seen_fu or (not fu['date'] and not fu['content']):
+                        continue
+                    seen_fu.add(sig)
+                    fu_ts = fu['date'] and f"{fu['date']} 12:00:00" or ts
                     db.execute(
                         "INSERT INTO followups (id, customer_id, type, content, next_follow_up_at, created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
                         (
                             f"f{uuid.uuid4().hex[:8]}", cid, 'other',
-                            data['last_followup_content'], '',
+                            fu['content'], '',
                             fu_ts, fu_ts,
                         ),
                     )
@@ -1819,6 +2171,7 @@ def sync_download():
         with get_db() as db:
             migrate_countries(db)
             normalize_datetimes(db)
+            _backfill_search_text(db)
         return {"ok": True, "size": os.path.getsize(DB_PATH), "backup": backup_path}
     except HTTPException:
         _restore(backup_path)
@@ -1976,6 +2329,10 @@ def _merge_databases(config: Dict[str, Any], prefer_local: bool = True) -> Dict[
                 )
                 local_fu.add(sig)
                 fu_added += 1
+
+            # 融合改动了客户（新增/字段覆盖），全部重算 search_text
+            for row in local_db.execute("SELECT id FROM customers").fetchall():
+                _update_search_text(local_db, row["id"])
 
             local_db.commit()
             local_db.close()
@@ -2740,9 +3097,9 @@ def start_tray(open_url: str = "http://127.0.0.1:8000") -> bool:
         icon = pystray.Icon(
             "trade_crm",
             _tray_icon_image(),
-            "外贸 CRM（运行中）· 右键菜单",
+            f"外贸 CRM v{read_local_version()}（运行中）\n双击打开页面 · 右键更多操作",
             menu=pystray.Menu(
-                pystray.MenuItem("打开 CRM", do_open),
+                pystray.MenuItem("打开 CRM", do_open, default=True),
                 pystray.MenuItem("立即同步", do_sync),
                 pystray.MenuItem("打开数据文件夹", do_folder),
                 pystray.Menu.SEPARATOR,
@@ -2751,6 +3108,39 @@ def start_tray(open_url: str = "http://127.0.0.1:8000") -> bool:
         )
         # run_detached 不阻塞主线程，便于在后台线程里调用
         icon.run_detached()
+        # 「单击打开」改「双击打开」：pystray 的 Windows 后端在收到
+        # WM_LBUTTONUP（单击）时就触发 default 菜单项，容易误触。
+        # 注意 pystray 注册的托盘窗口类没有 CS_DBLCLKS 样式，
+        # 系统不会发 WM_LBUTTONDBLCLK，所以这里自己计时判定：
+        # 两次左键单击的间隔小于系统双击时间（默认 500ms）才算双击。
+        try:
+            import ctypes
+            from pystray._util import win32 as _win32
+            _dblclick_ms = ctypes.windll.user32.GetDoubleClickTime() or 500
+            _state = {"last_up": 0.0}
+            # 关键：分发器查的是 _message_handlers 字典里存的引用，
+            # 只改 icon._on_notify 属性是无效的，必须替换字典里的条目。
+            _orig_on_notify = icon._message_handlers[_win32.WM_NOTIFY]
+
+            def _on_notify_dblclick(wparam, lparam):
+                if lparam == _win32.WM_LBUTTONUP:
+                    import time as _time
+                    now = _time.monotonic()
+                    if now - _state["last_up"] <= _dblclick_ms / 1000.0:
+                        _state["last_up"] = 0.0  # 防三连击触发两次
+                        try:
+                            do_open()
+                        except Exception:
+                            pass
+                    else:
+                        _state["last_up"] = now
+                    return
+                _orig_on_notify(wparam, lparam)
+
+            icon._message_handlers[_win32.WM_NOTIFY] = _on_notify_dblclick
+        except Exception:
+            # 检测失败就退回默认行为（单击打开），不影响使用
+            pass
         globals()["_tray_icon"] = icon
         return True
     except Exception:
@@ -2767,7 +3157,7 @@ def _start_tray_thread() -> None:
 
 # ---------- 版本信息（更新由独立的安装器完成，见 installer.py） ----------
 
-APP_VERSION = "0.3.2"
+APP_VERSION = "0.4.0"
 VERSION_FILE = os.path.join(BASE_DIR, "version.json")
 
 

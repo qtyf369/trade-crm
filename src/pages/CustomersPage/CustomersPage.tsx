@@ -22,6 +22,7 @@ import { handleConflictError } from '@/lib/conflict';
 import CustomerTable from './components/CustomerTable';
 import CustomerFormDialog from './components/CustomerFormDialog';
 import BatchExportDialog from './components/BatchExportDialog';
+import ImportDialog from './components/ImportDialog';
 import FilterPanel from './components/FilterPanel';
 
 type SortKey = 'company' | 'country' | 'level' | 'status' | 'source' | 'last_followup_at' | 'created_at' | 'starred';
@@ -35,7 +36,7 @@ const emptyCustomer = {
   country: '',
   email: '',
   phone: '',
-  source: '阿里巴巴国际站',
+  source: '',
   level: '' as CustomerLevel,
   status: 'lead' as CustomerStatus,
   note: '',
@@ -78,6 +79,7 @@ export default function CustomersPage() {
   const [form, setForm] = useState(emptyCustomer);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [batchExportOpen, setBatchExportOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [showFilterPanel, setShowFilterPanel] = useState(false);
 
   // ---- 批量模式 ----
@@ -85,14 +87,18 @@ export default function CustomersPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [batchBusy, setBatchBusy] = useState(false);
 
-  // 搜索防抖
+  // 搜索策略：输入时不自动搜（省请求），回车或点放大镜才提交；
+  // 清空输入时立即恢复全部
+  const commitSearch = useCallback((value: string) => {
+    setDebouncedSearch(value);
+    setPage(1);
+  }, []);
+
   useEffect(() => {
-    const t = setTimeout(() => {
-      setDebouncedSearch(search);
-      setPage(1);
-    }, 250);
-    return () => clearTimeout(t);
-  }, [search]);
+    if (search === '' && debouncedSearch !== '') {
+      commitSearch('');
+    }
+  }, [search, debouncedSearch, commitSearch]);
 
   const activeFilterCount =
     selectedCountries.length + selectedLevels.length +
@@ -272,9 +278,10 @@ export default function CustomersPage() {
     }
   };
 
-  const runBatch = async (action: BatchAction, confirmText?: string) => {
+  const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
+
+  const runBatch = async (action: BatchAction) => {
     if (selected.size === 0) return;
-    if (confirmText && !confirm(confirmText)) return;
     setBatchBusy(true);
     try {
       const res = await api.batchCustomers(Array.from(selected), action);
@@ -339,22 +346,10 @@ export default function CustomersPage() {
             <Button variant="outline" className={hoverBtn} onClick={() => setBatchExportOpen(true)}>
               批量导出
             </Button>
-            <label>
-              <input
-                type="file"
-                accept=".xlsx"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) handleImport(f);
-                  e.target.value = '';
-                }}
-              />
-              <span className={`inline-flex items-center justify-center rounded-md text-sm font-medium border border-input bg-background hover:bg-accent hover:text-accent-foreground hover:shadow-md h-10 px-4 py-2 cursor-pointer transition-all duration-200 active:scale-[0.97]`}>
-                <Upload className="mr-2 h-4 w-4" />
-                导入Excel
-              </span>
-            </label>
+            <Button variant="outline" className={hoverBtn} onClick={() => setImportOpen(true)}>
+              <Upload className="mr-2 h-4 w-4" />
+              导入Excel
+            </Button>
             <Button className={hoverBtn} onClick={openAdd}>
               <Plus className="mr-2 h-4 w-4" />
               新增客户
@@ -406,7 +401,7 @@ export default function CustomersPage() {
                 variant="outline" size="sm"
                 className="text-destructive hover:text-destructive"
                 disabled={selected.size === 0 || batchBusy}
-                onClick={() => runBatch('delete', `确定删除选中的 ${selected.size} 个客户吗？跟进记录会一并删除，无法恢复。`)}
+                onClick={() => setBatchDeleteOpen(true)}
               >
                 <Trash2 className="mr-1 h-4 w-4" />
                 删除选中
@@ -449,16 +444,27 @@ export default function CustomersPage() {
           </div>
         )}
 
-        {/* 搜索栏 */}
-        <div className="flex gap-2">
+        {/* 搜索栏（relative：筛选面板悬浮其下，不把表格挤没） */}
+        <div className="relative flex gap-2">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="搜索公司名、联系人、国家、产品或备注..."
+              placeholder="搜索公司名、联系人、国家、产品、拼音首字母...（回车搜索）"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-9"
+              onKeyDown={(e) => { if (e.key === 'Enter') commitSearch(search); }}
+              className="pl-9 pr-9"
             />
+            {/* 点放大镜提交搜索；仅当输入与已提交值不同时可点 */}
+            <button
+              aria-label="搜索"
+              title="搜索（回车）"
+              onClick={() => commitSearch(search)}
+              disabled={search === debouncedSearch}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-default transition-colors"
+            >
+              <Search className="h-4 w-4" />
+            </button>
           </div>
           <Button
             variant={showFilterPanel || activeFilterCount > 0 ? 'default' : 'outline'}
@@ -473,25 +479,27 @@ export default function CustomersPage() {
               </span>
             )}
           </Button>
-        </div>
 
-        {showFilterPanel && (
-          <FilterPanel
-            selectedCountries={selectedCountries}
-            setSelectedCountries={setSelectedCountries}
-            selectedLevels={selectedLevels}
-            setSelectedLevels={setSelectedLevels}
-            selectedStatuses={selectedStatuses}
-            setSelectedStatuses={setSelectedStatuses}
-            selectedSources={selectedSources}
-            setSelectedSources={setSelectedSources}
-            starredOnly={starredOnly}
-            setStarredOnly={setStarredOnly}
-            issuesOnly={issuesOnly}
-            setIssuesOnly={setIssuesOnly}
-            onReset={resetFilters}
-          />
-        )}
+          {showFilterPanel && (
+            <div className="absolute top-full left-0 right-0 mt-2 z-40 rounded-lg border border-border bg-card shadow-xl">
+              <FilterPanel
+                selectedCountries={selectedCountries}
+                setSelectedCountries={setSelectedCountries}
+                selectedLevels={selectedLevels}
+                setSelectedLevels={setSelectedLevels}
+                selectedStatuses={selectedStatuses}
+                setSelectedStatuses={setSelectedStatuses}
+                selectedSources={selectedSources}
+                setSelectedSources={setSelectedSources}
+                starredOnly={starredOnly}
+                setStarredOnly={setStarredOnly}
+                issuesOnly={issuesOnly}
+                setIssuesOnly={setIssuesOnly}
+                onReset={resetFilters}
+              />
+            </div>
+          )}
+        </div>
       </div>
 
       {/* 表格区域 — 独立滚动 */}
@@ -510,7 +518,6 @@ export default function CustomersPage() {
           starSortActive={sortBy === 'starred'}
           onToggleStarSort={() => toggleSort('starred')}
           onEdit={openEdit}
-          onDelete={setDeleteConfirm}
           onStar={toggleStar}
           onOpen={(id) => navigate(`/customers/${id}`)}
         />
@@ -561,7 +568,7 @@ export default function CustomersPage() {
         </div>
       </div>
 
-      {/* 新增/编辑 */}
+      {/* 新增/编辑（编辑模式下底部含删除入口） */}
       <CustomerFormDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
@@ -569,9 +576,10 @@ export default function CustomersPage() {
         form={form}
         setForm={setForm}
         onSubmit={handleSubmit}
+        onDelete={editingCustomer ? () => { setDialogOpen(false); setDeleteConfirm(editingCustomer.id); } : undefined}
       />
 
-      {/* 删除确认 */}
+      {/* 删除确认（单个） */}
       {deleteConfirm && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-card rounded-lg shadow-lg p-6 w-full max-w-sm mx-4">
@@ -591,10 +599,45 @@ export default function CustomersPage() {
         </div>
       )}
 
+      {/* 删除确认（批量） */}
+      {batchDeleteOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-card rounded-lg shadow-lg p-6 w-full max-w-sm mx-4">
+            <h3 className="text-lg font-semibold mb-2">
+              确认删除 {selected.size} 个客户
+            </h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              删除后这些客户的所有信息和跟进记录将无法恢复，确定要删除吗？
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" size="sm" onClick={() => setBatchDeleteOpen(false)} disabled={batchBusy}>
+                取消
+              </Button>
+              <Button
+                variant="destructive" size="sm"
+                disabled={batchBusy}
+                onClick={async () => {
+                  setBatchDeleteOpen(false);
+                  await runBatch('delete');
+                }}
+              >
+                {batchBusy ? '删除中…' : '删除'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 导入引导：先问是否下载模板 */}
+      <ImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        onFile={handleImport}
+      />
+
       <BatchExportDialog
         open={batchExportOpen}
-        onOpenChange={setBatchExportOpen}
-        currentTotal={total}
+        onOpenChange={setBatchExportOpen}        currentTotal={total}
         currentIds={items.map((c) => c.id)}
         onExport={(ids) => window.open(api.exportUrl({ ids: ids.join(',') }), '_blank')}
         onExportRange={(from, to) =>

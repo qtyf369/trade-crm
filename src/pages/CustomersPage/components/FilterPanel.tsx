@@ -62,7 +62,7 @@ export default function FilterPanel(props: Props) {
   } = props;
 
   return (
-    <div className="mb-4 p-4 border rounded-lg bg-card">
+    <div className="p-4">
       <div className="flex items-center justify-between mb-3">
         <h3 className="font-medium">筛选条件</h3>
         <Button variant="ghost" size="sm" onClick={onReset}>
@@ -84,39 +84,41 @@ export default function FilterPanel(props: Props) {
         </label>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div>
-          <div className="text-sm font-medium mb-2">国家</div>
-          <div className="max-h-40 overflow-y-auto">
-            <CountryFilter value={selectedCountries} onChange={setSelectedCountries} />
+      <div className="max-h-[50vh] overflow-y-auto">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div>
+            <div className="text-sm font-medium mb-2">国家</div>
+            <div className="max-h-40 overflow-y-auto">
+              <CountryFilter value={selectedCountries} onChange={setSelectedCountries} />
+            </div>
           </div>
-        </div>
-        <div>
-          <div className="text-sm font-medium mb-2">等级</div>
-          <CheckGroup
-            options={[...CUSTOMER_LEVELS]}
-            value={selectedLevels}
-            onChange={setSelectedLevels}
-            labelFor={(v) => LEVEL_LABELS[v] ?? v}
-          />
-        </div>
-        <div>
-          <div className="text-sm font-medium mb-2">来源</div>
-          <CheckGroup
-            options={SOURCES}
-            value={selectedSources}
-            onChange={setSelectedSources}
-            labelFor={(v) => v}
-          />
-        </div>
-        <div>
-          <div className="text-sm font-medium mb-2">状态</div>
-          <CheckGroup
-            options={[...CUSTOMER_STATUSES]}
-            value={selectedStatuses}
-            onChange={setSelectedStatuses}
-            labelFor={(v) => STATUS_LABELS[v] ?? v}
-          />
+          <div>
+            <div className="text-sm font-medium mb-2">等级</div>
+            <CheckGroup
+              options={[...CUSTOMER_LEVELS]}
+              value={selectedLevels}
+              onChange={setSelectedLevels}
+              labelFor={(v) => LEVEL_LABELS[v] ?? v}
+            />
+          </div>
+          <div>
+            <div className="text-sm font-medium mb-2">来源</div>
+            <CheckGroup
+              options={SOURCES}
+              value={selectedSources}
+              onChange={setSelectedSources}
+              labelFor={(v) => v}
+            />
+          </div>
+          <div>
+            <div className="text-sm font-medium mb-2">状态</div>
+            <CheckGroup
+              options={[...CUSTOMER_STATUSES]}
+              value={selectedStatuses}
+              onChange={setSelectedStatuses}
+              labelFor={(v) => STATUS_LABELS[v] ?? v}
+            />
+          </div>
         </div>
       </div>
     </div>

@@ -1,6 +1,6 @@
 // EXPORTS: ICustomer, IFollowUp, CustomerLevel, CustomerStatus, FollowUpType, CUSTOMER_STATUS_META, CUSTOMER_LEVEL_META, FOLLOWUP_TYPE_META
 
-export type CustomerLevel = '' | 'L0' | 'L1' | 'L2' | 'L3' | 'L4' | '低质' | '优质';
+export type CustomerLevel = '' | 'L0' | 'L1' | 'L2' | 'L3' | 'L4' | '1星' | '2星' | '3星' | '4星' | '5星' | '低质' | '优质';
 export type CustomerStatus = 'lead' | 'contacted' | 'quoted' | 'negotiating' | 'deal' | 'lost';
 export type FollowUpType = 'email' | 'whatsapp' | 'phone' | 'visit' | 'other';
 
@@ -58,13 +58,21 @@ export const CUSTOMER_STATUS_META: Record<CustomerStatus, { label: string; color
 
 export const CUSTOMER_LEVEL_META: Record<string, { label: string; color: string }> = {
   '': { label: '未分级', color: 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400' },
+  // 阿里专用等级
   L0: { label: 'L0', color: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300' },
   L1: { label: 'L1', color: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300' },
   L2: { label: 'L2', color: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300' },
   L3: { label: 'L3', color: 'bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300' },
   L4: { label: 'L4', color: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300' },
-  '低质': { label: '低质', color: 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300' },
-  '优质': { label: '优质', color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' },
+  // 通用星级
+  '1星': { label: '1星', color: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300' },
+  '2星': { label: '2星', color: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300' },
+  '3星': { label: '3星', color: 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300' },
+  '4星': { label: '4星', color: 'bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300' },
+  '5星': { label: '5星', color: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300' },
+  // 旧等级展示兼容
+  '低质': { label: '1星', color: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300' },
+  '优质': { label: '5星', color: 'bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300' },
 };
 
 export const FOLLOWUP_TYPE_META: Record<FollowUpType, { label: string }> = {

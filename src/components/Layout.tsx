@@ -23,8 +23,19 @@ export default function Layout() {
   const [syncKey, setSyncKey] = useState(0);
   const [editingNick, setEditingNick] = useState(false);
   const [nickDraft, setNickDraft] = useState('');
+  const [version, setVersion] = useState('');
   const menuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 版本号：与「设置」面板同源（version.json）
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/version')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (alive && d?.version) setVersion(d.version); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
   // 点外面关菜单
   useEffect(() => {
@@ -254,7 +265,7 @@ export default function Layout() {
         </nav>
 
         <div className="p-4 text-xs text-sidebar-foreground/40 border-t border-sidebar-border flex items-center gap-2">
-          外贸CRM v0.2 · 单人离线版
+          外贸CRM v{version}
         </div>
       </aside>
 
