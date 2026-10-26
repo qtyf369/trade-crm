@@ -1,11 +1,10 @@
 import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
-import { Sun, Moon, Monitor, Check, Archive } from 'lucide-react';
+import { Sun, Moon, Monitor, Check } from 'lucide-react';
 import {
   useTheme, type ThemeMode, COLOR_SCHEMES, COLOR_SCHEME_META, type ColorScheme,
 } from '@/hooks/use-theme';
 import SchemeAvatar from '@/components/SchemeAvatar';
-import BackupDialog from '@/components/BackupDialog';
 import { Button } from '@/components/ui/button';
 import {
   Dialog, DialogClose, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -55,7 +54,6 @@ function SectionLabel({ children }: { children: ReactNode }) {
 export default function SettingsDialog({ open, onOpenChange }: Props) {
   // 主题即时生效并持久化，无需「保存」；「完成」仅用于关闭面板
   const { mode, changeMode, scheme, changeScheme } = useTheme();
-  const [backupOpen, setBackupOpen] = useState(false);
 
   // 当前版本号（更新方式：运行新版本安装器，一键完成）
   const [version, setVersion] = useState('');
@@ -176,17 +174,18 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
               调整页面大小，浏览器会记住这个网站的比例，下次打开保持一致。
             </p>
           </section>
-          {/* 数据备份 */}
+          {/* 换电脑 / 迁移数据 */}
           <section>
-            <SectionLabel>数据备份</SectionLabel>
-            <Button
-              variant="outline"
-              className="w-full justify-start"
-              onClick={() => { setBackupOpen(true); onOpenChange(false); }}
-            >
-              <Archive className="h-4 w-4" />
-              备份与恢复（含全部数据与设置）
-            </Button>
+            <SectionLabel>换电脑</SectionLabel>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              把整个安装文件夹（包含 <code className="rounded bg-muted px-1 py-0.5 text-xs">data</code>
+              文件夹）整个复制到新电脑，双击启动即可，
+              客户数据、设置、坚果云账号都会一起过去。
+            </p>
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              如果已经绑定了坚果云，也可以不复制：在新电脑装好后绑定同一个账号，
+              点「同步数据」→「融合」，数据会从云端拉回来。
+            </p>
           </section>
 
           {/* 版本信息 */}
@@ -212,7 +211,6 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
         </DialogFooter>
       </DialogContent>
 
-      <BackupDialog open={backupOpen} onOpenChange={setBackupOpen} />
     </Dialog>
   );
 }

@@ -60,10 +60,11 @@ def desktop() -> str:
 def shortcut_target(lnk_path: str) -> str:
     """读取快捷方式指向的 exe 路径（用 PowerShell，避免依赖 win32com）"""
     try:
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         r = subprocess.run(
-            ["powershell", "-NoProfile", "-Command",
+            ["powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command",
              f"(New-Object -ComObject WScript.Shell).CreateShortcut('{lnk_path}').TargetPath"],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True, text=True, timeout=15, creationflags=flags,
         )
         p = (r.stdout or "").strip().strip('"')
         return p if p and os.path.exists(p) else ""
@@ -252,8 +253,9 @@ def make_shortcut(target: str) -> None:
         % (os.path.join(dn, "外贸CRM.lnk"), exe, target, exe)
     )
     try:
-        subprocess.run(["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps],
-                       capture_output=True, timeout=20)
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", ps],
+                       capture_output=True, timeout=20, creationflags=flags)
     except Exception:
         pass
     remember_install_path(target)

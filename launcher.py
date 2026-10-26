@@ -284,9 +284,11 @@ def _ensure_desktop_shortcut() -> None:
             "$s.TargetPath='%s';$s.WorkingDirectory='%s';$s.IconLocation='%s';$s.Save()"
             % (link, exe, exe_dir, exe)
         )
+        # CREATE_NO_WINDOW：完全隐藏 PowerShell 窗口，避免闪一下黑框
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         subprocess.run(
-            ["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps],
-            capture_output=True, timeout=20,
+            ["powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", ps],
+            capture_output=True, timeout=20, creationflags=flags,
         )
         os.makedirs(os.path.dirname(marker), exist_ok=True)
         with open(marker, "w", encoding="utf-8") as f:

@@ -2156,9 +2156,11 @@ def sync_inspect():
             status = "remote_newer"          # 本地空库，云端有数据
         elif lc > 0 and rc == 0:
             status = "local_newer"           # 云端空库，本地有数据
-        elif rc > 0 and lc > 0 and max(lc, rc) >= max(1, min(lc, rc)) * 3:
-            # 数据量差 3 倍以上：以数据多的一方为「更完整」的一方
-            status = "local_newer" if lc > rc else "remote_newer"
+        elif lc > 0 and rc > 0 and lc != rc:
+            # 两端都有数据且数量不同 → 一定是两份不同的数据，必须让用户决定，
+            # 不能按「谁多谁新」自动判定（本地可能只是还没录入多少客户，
+            # 云端可能只是旧数据多，按数量判会诱导用户覆盖掉本地数据）
+            status = "diverged"
         else:
             status = "local_newer" if local["mtime"] >= remote["mtime"] else "remote_newer"
 
@@ -2691,7 +2693,11 @@ def _tray_icon_image():
 def start_tray(open_url: str = "http://127.0.0.1:8000") -> bool:
     """启动托盘图标，返回是否成功
 
-    菜单项：打开 CRM（双击默认）/ 打开数据文件夹 / 检查更新 / 退出程序。
+    菜单项：
+      打开 CRM      —— 在默认浏览器里打开界面
+      立即同步      —— 立刻与坚果云同步一次
+      打开数据文件夹 —— 直接打开数据目录（方便整包拷到别的电脑）
+      退出程序
     失败时静默返回 False，不影响主功能。
     """
     try:
@@ -2704,6 +2710,18 @@ def start_tray(open_url: str = "http://127.0.0.1:8000") -> bool:
             webbrowser.open(open_url)
         except Exception:
             pass
+
+    def do_sync(icon=None, item=None):
+        """托盘里手动触发一次同步"""
+        def work():
+            try:
+                cfg = load_config()
+                if not (cfg.get("webdav_url") and cfg.get("webdav_user")):
+                    return
+                sync_auto()
+            except Exception:
+                pass
+        threading.Thread(target=work, daemon=True).start()
 
     def do_folder(icon=None, item=None):
         try:
@@ -2724,7 +2742,8 @@ def start_tray(open_url: str = "http://127.0.0.1:8000") -> bool:
             _tray_icon_image(),
             "外贸 CRM（运行中）· 右键菜单",
             menu=pystray.Menu(
-                pystray.MenuItem("打开 CRM", do_open, default=True),
+                pystray.MenuItem("打开 CRM", do_open),
+                pystray.MenuItem("立即同步", do_sync),
                 pystray.MenuItem("打开数据文件夹", do_folder),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem("退出程序", do_quit),
