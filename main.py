@@ -718,6 +718,17 @@ init_db()
 seed_if_empty()
 auto_backup()
 
+# 国家名规范化只在启动时做一次（历史数据修正）。
+# 旧实现在每次客户列表请求里执行一次全表 UPDATE，既拖慢列表，
+# 又会与用户的增删改并发争抢 SQLite 写锁，导致偶发响应异常。
+try:
+    with _db_lock:
+        with get_db() as _db:
+            migrate_countries(_db)
+            normalize_datetimes(_db)
+except Exception:
+    pass
+
 
 # ---------- 查询构造 ----------
 
@@ -886,21 +897,21 @@ def list_customers(
     page_size: int = 50,
 ):
     """分页客户列表（含总数），供前端表格直接使用"""
-    migrate_countries_tick()
-    with get_db() as db:
-        items, total = query_customers(
-            db, **build_query_params(
-                search, country, level, status, source, starred, issues,
-                sort_by, sort_asc, page, page_size,
+    # 用 _db_lock 串行化读，避免与增删改并发争抢 SQLite 写锁
+    with _db_lock:
+        with get_db() as db:
+            items, total = query_customers(
+                db, **build_query_params(
+                    search, country, level, status, source, starred, issues,
+                    sort_by, sort_asc, page, page_size,
+                )
             )
-        )
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
 # 旧接口保留一段时间：返回全量数组（前端老版本/导出在用）
 @app.get("/api/customers/all")
 def list_customers_all():
-    migrate_countries_tick()
     with get_db() as db:
         rows = db.execute("""
             SELECT * FROM (
@@ -920,16 +931,11 @@ _migrate_country_last: Dict[str, Any] = {}
 
 def migrate_countries_tick():
     """
-    节流执行国家名修正：最多每 60 秒一次，避免每次列表请求都全表扫描。
+    国家名修正：仅在启动时执行一次（见 init_db 之后的调用）。
+
+    旧实现在每次列表请求里做一次全表 UPDATE，会与用户的增删改并发争抢
+    SQLite 写锁，导致偶发响应异常。现在改为启动时一次，之后不再触碰。
     """
-    now = datetime.now()
-    with _migrate_country_lock:
-        last = _migrate_country_last.get('at')
-        if last and (now - last).total_seconds() < 60:
-            return
-        _migrate_country_last['at'] = now
-    with get_db() as db:
-        migrate_countries(db)
 
 
 @app.get("/api/customers/{cid}/detail")
@@ -2546,6 +2552,14 @@ def _open_browser_when_ready(url: str, timeout: float = 15.0) -> None:
 
 # ---------- 前端静态文件 ----------
 
+# 注意：以下接口必须注册在 catch-all 的 serve_frontend 之前，
+# 否则会被前端路由拦截，返回 HTML 而不是 JSON。
+@app.get("/api/version")
+def get_version():
+    """前端显示当前版本用；更新方式为运行新版安装器"""
+    return {"version": read_local_version(), "app": "外贸CRM"}
+
+
 if os.path.exists(DIST_DIR):
     if os.path.exists(os.path.join(ASSETS_DIR, "assets")):
         app.mount("/assets", StaticFiles(directory=os.path.join(ASSETS_DIR, "assets")), name="assets")
@@ -2564,6 +2578,101 @@ if os.path.exists(DIST_DIR):
         )
 
 
+# ---------- 系统托盘（所有启动方式都可用） ----------
+
+def _tray_icon_image():
+    """生成托盘图标（蓝色圆环 + C 形缺口）"""
+    from PIL import Image, ImageDraw
+    img = Image.new("RGB", (64, 64), (37, 99, 235))
+    d = ImageDraw.Draw(img)
+    d.ellipse((14, 14, 50, 50), outline="white", width=7)
+    d.rectangle((44, 28, 52, 38), fill=(37, 99, 235))
+    return img
+
+
+def start_tray(open_url: str = "http://127.0.0.1:8000") -> bool:
+    """启动托盘图标，返回是否成功
+
+    菜单项：打开 CRM（双击默认）/ 打开数据文件夹 / 检查更新 / 退出程序。
+    失败时静默返回 False，不影响主功能。
+    """
+    try:
+        import pystray
+    except Exception:
+        return False
+
+    def do_open(icon=None, item=None):
+        try:
+            webbrowser.open(open_url)
+        except Exception:
+            pass
+
+    def do_folder(icon=None, item=None):
+        try:
+            os.startfile(BASE_DIR)  # noqa: S606
+        except Exception:
+            pass
+
+    def do_quit(icon=None, item=None):
+        try:
+            icon.stop()
+        except Exception:
+            pass
+        os._exit(0)
+
+    try:
+        icon = pystray.Icon(
+            "trade_crm",
+            _tray_icon_image(),
+            "外贸 CRM（运行中）· 右键菜单",
+            menu=pystray.Menu(
+                pystray.MenuItem("打开 CRM", do_open, default=True),
+                pystray.MenuItem("打开数据文件夹", do_folder),
+                pystray.Menu.SEPARATOR,
+                pystray.MenuItem("退出程序", do_quit),
+            ),
+        )
+        # run_detached 不阻塞主线程，便于在后台线程里调用
+        icon.run_detached()
+        globals()["_tray_icon"] = icon
+        return True
+    except Exception:
+        return False
+
+
+def _start_tray_thread() -> None:
+    """在独立线程启动托盘，失败不影响主流程"""
+    try:
+        threading.Thread(target=lambda: start_tray(), daemon=True).start()
+    except Exception:
+        pass
+
+
+# ---------- 版本信息（更新由独立的安装器完成，见 installer.py） ----------
+
+APP_VERSION = "0.3.0"
+VERSION_FILE = os.path.join(BASE_DIR, "version.json")
+
+
+def read_local_version() -> str:
+    """读取本机版本号（打包后会写入 version.json）"""
+    try:
+        with open(VERSION_FILE, "r", encoding="utf-8-sig") as f:
+            v = (json.load(f) or {}).get("version")
+        if v:
+            return str(v)
+    except (OSError, ValueError):
+        pass
+    return APP_VERSION
+
+
+def _ver_tuple(v: str):
+    try:
+        return tuple(int(x) for x in str(v).lstrip("v").split("."))
+    except Exception:
+        return (0,)
+
+
 # ---------- 后台自动同步（模块级启动） ----------
 #
 # 注意：必须在这里启动，不能只放在 `if __name__ == "__main__"` 里。
@@ -2578,6 +2687,7 @@ def _start_sync_thread() -> None:
 
 
 _start_sync_thread()
+_start_tray_thread()
 
 
 if __name__ == "__main__":

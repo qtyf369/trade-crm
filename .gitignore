@@ -115,3 +115,6 @@ sync_state.json
 .tmp/
 # 界面偏好本地缓存
 ui_settings.json
+
+# 安装器构建中间目录
+build_installer/

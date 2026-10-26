@@ -39,6 +39,10 @@ HIDDEN_IMPORTS = [
     "h11",
     "anyio",
     "sniffio",
+    # 业务模块必须显式声明：launcher.py 里是函数内延迟 import，
+    # 某些 PyInstaller 版本不会收集到，会导致打出来的 exe 用旧代码或缺路由
+    "main",
+    "constants",
     "email.mime",
     "email.utils",
     "sqlite3",
@@ -65,6 +69,8 @@ DATAS = [
     (os.path.join(BASE, "dist", "output"), "dist/output"),
     (os.path.join(BASE, "dist", "output_resource"), "dist/output_resource"),
     (os.path.join(BASE, "constants.py"), "."),
+    # main.py 也作为数据文件打入，确保代码一定是最新的
+    (os.path.join(BASE, "main.py"), "."),
 ]
 
 EXCLUDES = [
@@ -107,11 +113,13 @@ README_TEXT = """外贸 CRM  使用说明
     再绑定同一个坚果云账号、点「融合」即可。
 
 
-【更新版本】
-    1. 先退出：右下角托盘图标 → 右键 →「退出程序」
-    2. 把新版本里的文件全部复制到本文件夹，选「覆盖」
-       ※ 千万别删 data 文件夹，那是你的数据
-    3. 启动即可
+【更新版本】一键更新
+    界面左侧「设置」→「版本与更新」→ 点「检查更新」
+    有新版本时点一下升级按钮，自动下载、自动安装、自动重启，
+    你的数据（data 文件夹）原样保留，全程不用手动复制任何文件。
+
+    没有网络时也可以手动更新：把新版本文件复制到本文件夹覆盖
+    （※ 别删 data 文件夹，那是你的数据）
 
 
 【其他小提示】
@@ -159,7 +167,7 @@ def main() -> None:
         "--distpath", DIST_DIR,
         "--workpath", BUILD_DIR,
         "--specpath", BUILD_DIR,
-        "--noconsole",          # 无黑框：双击直接开浏览器
+        "--console",              # 保留控制台：出问题时能看到日志，便于排查
         "--noupx",
     ]
     for mod in HIDDEN_IMPORTS:
@@ -203,6 +211,14 @@ def main() -> None:
     stale_data = os.path.join(app_dir, "data")
     if os.path.isdir(stale_data) and not os.listdir(stale_data):
         os.rmdir(stale_data)
+
+    # 写入版本号（自动更新用来比对）
+    import re as _re
+    m = _re.search(r"APP_VERSION\s*=\s*\"([^\"]+)\"", open(os.path.join(BASE, "main.py"), encoding="utf-8").read())
+    ver = m.group(1) if m else "0.0.0"
+    with open(os.path.join(app_dir, "version.json"), "w", encoding="utf-8") as f:
+        f.write('{"version": "%s"}\n' % ver)
+    print("  版本号:", ver)
 
     # 放入使用说明
     readme = os.path.join(app_dir, "使用说明.txt")

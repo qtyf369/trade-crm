@@ -16,35 +16,112 @@ import webbrowser
 APP_URL = "http://127.0.0.1:8000"
 
 
-def _ensure_std_streams() -> None:
-    """--noconsole 打包后 sys.stdout/stderr 为 None，任何 print 都会抛
-    AttributeError 导致程序无声退出。这里把它们重定向到 data 目录日志。"""
-    if sys.stdout is not None and sys.stderr is not None:
-        return
-    try:
-        exe_dir = os.path.dirname(os.path.abspath(sys.executable))
-        log_dir = os.path.join(exe_dir, "data")
-        os.makedirs(log_dir, exist_ok=True)
-        log_path = os.path.join(log_dir, "launcher.log")
-        stream = open(log_path, "a", encoding="utf-8", buffering=1)
-    except Exception:
+class _Tee:
+    """同时写原始 stream 和日志文件，确保日志一定落盘"""
+
+    def __init__(self, original, logfile):
+        self._original = original
+        self._log = logfile
+
+    def write(self, data):
         try:
-            stream = open(os.devnull, "w", encoding="utf-8")
+            if self._original is not None:
+                self._original.write(data)
         except Exception:
-            return
-    if sys.stdout is None:
-        sys.stdout = stream
-    if sys.stderr is None:
-        sys.stderr = stream
+            pass
+        try:
+            self._log.write(data)
+            self._log.flush()
+        except Exception:
+            pass
+        return len(data) if data else 0
+
+    def flush(self):
+        try:
+            if self._original is not None:
+                self._original.flush()
+        except Exception:
+            pass
+        try:
+            self._log.flush()
+        except Exception:
+            pass
+
+    # uvicorn / logging 需要判断是否为 tty
+    def isatty(self):
+        try:
+            return bool(self._original) and self._original.isatty()
+        except Exception:
+            return False
+
+    def fileno(self):
+        try:
+            if self._original is not None:
+                return self._original.fileno()
+        except Exception:
+            pass
+        return -1
+
+
+def _open_log() -> object:
+    """打开日志文件，依次尝试多个可写位置"""
+    candidates = []
+    try:
+        candidates.append(os.path.join(os.path.dirname(os.path.abspath(sys.executable)), "data"))
+    except Exception:
+        pass
+    candidates.append(os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "TradeCRM"))
+    candidates.append(os.path.join(os.environ.get("TEMP", os.getcwd()), "crm_logs"))
+    for d in candidates:
+        try:
+            os.makedirs(d, exist_ok=True)
+            return open(os.path.join(d, "launcher.log"), "a", encoding="utf-8", buffering=1)
+        except Exception:
+            continue
+    return open(os.devnull, "w", encoding="utf-8")
+
+
+def _ensure_std_streams() -> None:
+    """把 stdout/stderr 同时指向原始流与日志文件。
+
+    打包后（尤其 --noconsole）print 可能无声丢弃；用 Tee 双写保证
+    无论哪种模式，日志都能在 data/launcher.log 里查到。
+    """
+    global _log_stream
+    try:
+        _log_stream = _open_log()
+    except Exception:
+        return
+    sys.stdout = _Tee(sys.stdout, _log_stream)
+    sys.stderr = _Tee(sys.stderr, _log_stream)
+
+
+_log_stream = None
+_ensure_std_streams()
+
+
+# 最早的诊断：确认 frozen 状态与关键路径
+try:
+    print(f"[boot] frozen={getattr(sys, 'frozen', False)}")
+    print(f"[boot] executable={sys.executable}")
+    print(f"[boot] _MEIPASS={getattr(sys, '_MEIPASS', '<none>')}")
+    _mp = getattr(sys, "_MEIPASS", "")
+    if _mp:
+        print(f"[boot] main.py in _MEIPASS={os.path.isfile(os.path.join(_mp, 'main.py'))}")
+except Exception as _e:
+    print(f"[boot] diag error: {_e}")
 
 
 _ensure_std_streams()
 
 
 def _port_in_use(port: int = 8000) -> bool:
+    print(f"[boot] checking port {port}")
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(0.6)
-        return s.connect_ex(("127.0.0.1", port)) == 0
+        r = s.connect_ex(("127.0.0.1", port)) == 0
+    print(f"[boot] port {port} in use = {r}")
+    return r
 
 
 def _wait_ready(timeout: float = 20.0) -> bool:
@@ -161,50 +238,6 @@ def _open_in_browser(url: str) -> str:
         return "打开失败"
 
 
-def _start_tray(on_exit) -> None:
-    """在无黑框模式下提供托盘图标：右键可打开页面 / 退出程序
-
-    失败时静默忽略（例如缺少 pystray 依赖），不影响主功能。
-    """
-    try:
-        import pystray
-        from PIL import Image, ImageDraw
-    except Exception:
-        return
-
-    def make_icon():
-        img = Image.new("RGB", (64, 64), (37, 99, 235))
-        d = ImageDraw.Draw(img)
-        # 简单的 "C" 形标志，避免额外图片资源
-        d.ellipse((14, 14, 50, 50), outline="white", width=7)
-        d.rectangle((44, 28, 52, 38), fill=(37, 99, 235))
-        return img
-
-    def open_page(icon=None, item=None):
-        _open_in_browser(APP_URL)
-
-    def quit_app(icon, item=None):
-        try:
-            icon.stop()
-        except Exception:
-            pass
-        on_exit()
-
-    try:
-        icon = pystray.Icon(
-            "trade_crm",
-            make_icon(),
-            "外贸 CRM（运行中）",
-            menu=pystray.Menu(
-                pystray.MenuItem("打开 CRM", open_page, default=True),
-                pystray.MenuItem("退出程序", quit_app),
-            ),
-        )
-        icon.run()
-    except Exception:
-        pass
-
-
 def _ensure_desktop_shortcut() -> None:
     """首次运行自动在桌面创建快捷方式（只做一次，失败静默）
 
@@ -248,6 +281,10 @@ def _ensure_desktop_shortcut() -> None:
 
 
 def main() -> int:
+    # --windowed 打包后 sys.stdout/stderr 为 None，任何 print 都会抛异常。
+    # 先重定向到日志，保证后面所有 print 安全。
+    _ensure_std_streams()
+
     # 已在运行：直接打开页面，不重复启动
     if _port_in_use():
         how = _open_in_browser(APP_URL)
@@ -269,49 +306,92 @@ def main() -> int:
 
     threading.Thread(target=opener, daemon=True).start()
 
-    # 延迟导入，确保上面的检查先执行
-    import uvicorn
-    import main as app_module
+    # 延迟导入，确保上面的检查先执行。
+    #
+    # frozen 模式下 PyInstaller 的 FrozenImporter 优先级高于 sys.path，
+    # 所以 `import main` 命中的是 PYZ 里的旧副本（可能缺最新路由）。
+    # 这里显式按文件路径加载 _MEIPASS 下的 main.py，保证用的是最新代码。
+    if getattr(sys, "frozen", False):
+        import importlib.util
+
+        meipass = getattr(sys, "_MEIPASS", "")
+        main_file = os.path.join(meipass, "main.py") if meipass else ""
+        # 把 _MEIPASS 加入路径，main.py 内部的 `from constants import ...` 依赖它
+        if meipass:
+            if meipass in sys.path:
+                sys.path.remove(meipass)
+            sys.path.insert(0, meipass)
+        # 清掉可能已缓存的模块
+        sys.modules.pop("main", None)
+        sys.modules.pop("constants", None)
+
+        if os.path.isfile(main_file):
+            spec = importlib.util.spec_from_file_location("main", main_file)
+            app_module = importlib.util.module_from_spec(spec)
+            sys.modules["main"] = app_module
+            spec.loader.exec_module(app_module)
+            # 诊断：确认实际加载的文件与路由数
+            try:
+                _paths = [getattr(r, "path", "") for r in app_module.app.routes]
+                print(f"[launcher] loaded main from {main_file}")
+                print(f"[launcher] routes={len(_paths)} "
+                      f"has_version={'/api/version' in _paths} "
+                      f"has_backup={'/api/backup/list' in _paths}")
+            except Exception as _e:
+                print(f"[launcher] diag failed: {_e}")
+        else:
+            import main as app_module  # noqa: F811
+            try:
+                print(f"[launcher] fallback import main from {app_module.__file__}")
+            except Exception:
+                pass
+    else:
+        import main as app_module
 
     print("=" * 50)
     print("  外贸 CRM")
     print(f"  服务地址：{APP_URL}")
     print(f"  数据目录：{app_module.BASE_DIR}")
-    print("  可在系统托盘右键选择「退出程序」")
+    print("  系统托盘右键可打开页面 / 退出程序")
     print("=" * 50)
 
-    # 无控制台模式下用托盘提供退出入口
-    def stop_all():
-        os._exit(0)
+    # 托盘已由 main.py 在模块加载时启动（开发版与打包版都可用），此处不再重复
 
-    threading.Thread(target=_start_tray, args=(stop_all,), daemon=True).start()
-
+    import uvicorn
     uvicorn.run(app_module.app, host="127.0.0.1", port=8000, log_level="warning")
     return 0
 
 
 if __name__ == "__main__":
+    print("[boot] entering __main__ block")
+    _rc = 0
     try:
-        sys.exit(main())
+        _rc = main()
+        print(f"[boot] main() returned {_rc}")
     except KeyboardInterrupt:
-        sys.exit(0)
+        _rc = 0
     except Exception:
+        # --windowed 模式下 stdout/stderr 为 None，print 会再抛一次异常。
+        # 所以这里必须先重定向，再输出。
+        _ensure_std_streams()
+        _tb = traceback.format_exc()
         print("\n启动失败，错误详情如下：\n")
-        traceback.print_exc()
+        print(_tb)
         try:
             import tkinter.messagebox as mb
             import tkinter as tk
             root = tk.Tk()
             root.withdraw()
             root.attributes("-topmost", True)
-            mb.showerror("外贸 CRM 启动失败", "程序启动遇到问题，请截图后联系提供者。\n\n" + traceback.format_exc()[-800:])
+            mb.showerror("外贸 CRM 启动失败", "程序启动遇到问题，请截图后联系提供者。\n\n" + _tb[-800:])
             root.destroy()
         except Exception:
             pass
-        # 无控制台模式下 stdin 不可用，仅在交互式终端才等待按键
+        _rc = 1
+    finally:
         try:
-            if sys.stdin and sys.stdin.isatty():
-                input("\n按回车键退出…")
+            sys.stdout.flush()
+            sys.stderr.flush()
         except Exception:
             pass
-        sys.exit(1)
+    sys.exit(_rc)

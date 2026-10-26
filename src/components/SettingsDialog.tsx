@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Sun, Moon, Monitor, Check, Archive } from 'lucide-react';
 import {
   useTheme, type ThemeMode, COLOR_SCHEMES, COLOR_SCHEME_META, type ColorScheme,
@@ -56,6 +56,17 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
   // 主题即时生效并持久化，无需「保存」；「完成」仅用于关闭面板
   const { mode, changeMode, scheme, changeScheme } = useTheme();
   const [backupOpen, setBackupOpen] = useState(false);
+
+  // 当前版本号（更新方式：运行新版本安装器，一键完成）
+  const [version, setVersion] = useState('');
+
+  useEffect(() => {
+    if (!open) return;
+    fetch('/api/version')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.version) setVersion(d.version); })
+      .catch(() => {});
+  }, [open]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -176,6 +187,17 @@ export default function SettingsDialog({ open, onOpenChange }: Props) {
               <Archive className="h-4 w-4" />
               备份与恢复（含全部数据与设置）
             </Button>
+          </section>
+
+          {/* 版本信息 */}
+          <section>
+            <SectionLabel>版本</SectionLabel>
+            <p className="text-sm text-muted-foreground">
+              当前版本 <span className="font-medium text-foreground">v{version || '…'}</span>
+              <span className="ml-2 text-xs">
+                （更新方式：拿到新版的安装包后双击运行即可，程序和数据都会自动处理）
+              </span>
+            </p>
           </section>
         </div>
 
