@@ -96,10 +96,11 @@ export default function SyncSettingsDialog({ open, onOpenChange }: Props) {
         }),
       });
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        toast.error(data.detail || `绑定失败：HTTP ${res.status}`);
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.detail || `绑定失败：HTTP ${res.status}`);
         return;
       }
+      const bindResult = await res.json().catch(() => ({}));
       // 本地有未同步的昵称/头像时，绑定后立刻整体推送（以本地为准）
       const hasPending = localStorage.getItem('crm:profile_pending') === '1';
       if (hasPending) {
@@ -122,16 +123,33 @@ export default function SyncSettingsDialog({ open, onOpenChange }: Props) {
         });
       }
       onOpenChange(false);
-      // 绑定完成后立即对比两端数据，让用户选择如何处理
+      // 绑定完成后立即对比两端数据，让用户选择如何处理。
+      // 后端在绑定成功时已顺带完成首次拉取，直接用返回的 inspect 结果。
       setMergeOpen(true);
       setInspecting(true);
-      fetch('/api/sync/inspect')
-        .then((r) => r.json())
-        .then((d: InspectResult) => {
-          setInspect(d);
-        })
-        .catch(() => setInspect({ status: 'error' }))
-        .finally(() => setInspecting(false));
+      const inspect = bindResult?.inspect as InspectResult | null | undefined;
+      if (inspect) {
+        setInspect(inspect);
+        setInspecting(false);
+        if (inspect.status === 'remote_newer' || inspect.status === 'diverged') {
+          toast.info('已检测到云端数据，请选择如何处理');
+        } else if (inspect.status === 'same') {
+          toast.success('已绑定坚果云，本地与云端数据一致');
+        } else {
+          toast.success('已绑定坚果云');
+        }
+      } else {
+        fetch('/api/sync/inspect')
+          .then((r) => r.json())
+          .then((d: InspectResult) => {
+            setInspect(d);
+            setInspecting(false);
+          })
+          .catch(() => {
+            setInspect({ status: 'error' });
+            setInspecting(false);
+          });
+      }
     } catch (e) {
       toast.error(`保存失败：${e instanceof Error ? e.message : '网络错误'}`);
     }

@@ -363,6 +363,27 @@ def seed_if_empty():
             )
 
 
+# 示例客户的固定 id（见 seed_if_empty）
+SEED_CUSTOMER_IDS = ("c1", "c2", "c3")
+
+
+def _is_only_seed_data() -> bool:
+    """判断本地是否只有示例数据（没有任何用户自己录入的记录）
+
+    为 True 时，首次绑定可以直接用云端数据接管本地；
+    为 False 时说明用户已经录了数据，必须走融合流程让用户自己选，
+    否则用户刚录入的客户会被云端旧数据覆盖掉。
+    """
+    try:
+        with get_db() as db:
+            rows = db.execute("SELECT id FROM customers").fetchall()
+        if not rows:
+            return True
+        return all((r['id'] or '') in SEED_CUSTOMER_IDS for r in rows)
+    except Exception:
+        return False
+
+
 # ---------- 数据校验 ----------
 
 def normalize_country(raw: Optional[str]) -> str:
@@ -1545,7 +1566,17 @@ def update_sync_config(config: SyncConfig):
         "auto_sync": config.auto_sync,
     }
     save_config(merged)
-    return {"ok": True}
+    # 绑定成功的瞬间立即做一次「首次同步」：
+    # 用户是「先启动、后绑定」的，后台线程的首次拉取早在绑定前就跳过了，
+    # 这里补上，否则会出现「绑定了但没反应、也没让用户选择」的情况。
+    try:
+        _first_run_pull()
+    except Exception:
+        pass
+    try:
+        return {"ok": True, "inspect": sync_inspect()}
+    except Exception:
+        return {"ok": True, "inspect": None}
 
 
 @app.post("/api/sync/test")
@@ -2092,6 +2123,14 @@ def sync_inspect():
         return {"bound": True, "status": "same", "local": local, "remote": remote,
                 "local_counts": local_counts, "remote_counts": remote_counts}
 
+    # 内容层面的差异：两端记录数不同 → 一定不是同一份数据
+    if (remote_counts.get("customers", -1) >= 0
+            and local_counts.get("customers", -1) >= 0
+            and remote_counts["customers"] != local_counts["customers"]):
+        return {"bound": True, "status": "diverged", "local": local, "remote": remote,
+                "local_counts": local_counts, "remote_counts": remote_counts,
+                "message": "本地与云端的数据不同，请选择如何处理"}
+
     # 记录过上次同步点：两端都没离开过该点 = 一致
     base = state.get("base") or {}
     if base.get("local_mtime") and base.get("remote_mtime"):
@@ -2494,10 +2533,14 @@ SYNC_INTERVAL = 120  # 秒；启动后每 2 分钟检查一次云端是否变化
 
 
 def _first_run_pull() -> None:
-    """首次启动自动从云端拉取数据，做到「解压双击就能看到自己的客户」
+    """首次绑定/启动时自动从云端拉取数据，做到「绑定完就能看到自己的客户」
 
-    判定首次：本地从未同步过（无同步基线），且云端客户数多于本地。
-    此时直接用云端覆盖本地。仅执行一次，之后交给常规同步逻辑。
+    判定首次：本地从未同步过（无同步基线）。
+
+    关键区分本地是不是「只有示例数据」：
+    - 本地仅有示例数据（seed 的 3 条）→ 直接用云端覆盖，用户看不到中间态
+    - 本地已有用户自己的数据 → 不覆盖，改为走融合，把选择权交给用户，
+      否则用户刚录入的客户会被云端旧数据冲掉
     """
     try:
         config = load_config()
@@ -2516,13 +2559,20 @@ def _first_run_pull() -> None:
             tmp = _download_remote_db(config)
             if not tmp:
                 return
-            if _counts(tmp).get("customers", 0) > local_counts.get("customers", 0):
+            remote_count = _counts(tmp).get("customers", 0)
+            # 本地只有示例数据时，云端数据可以直接接管；
+            # 本地有真实数据时不动，交给 sync_inspect 提示用户选择
+            if remote_count > local_counts.get("customers", 0) and _is_only_seed_data():
                 with _db_lock:
                     shutil.copy2(tmp, DB_PATH)
                 with get_db() as db:
                     migrate_countries(db)
                     normalize_datetimes(db)
+                # 已被云端完全接管，两端此时就是同一份数据，记录基线
                 _mark_synced()
+            # 否则（本地有真实数据）不记录基线：还没真正同步过，
+            # 等用户选完「融合/以本地为准/以云端为准」后再由对应流程记录，
+            # 否则基线会等于当前状态，后续同步判断就看不出变化了
         finally:
             if tmp and os.path.exists(tmp):
                 try:
