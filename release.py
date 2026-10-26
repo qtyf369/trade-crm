@@ -36,12 +36,16 @@ def run(cmd, label, cwd=BASE):
 
 
 def main() -> None:
-    # 1) 版本号
-    out = run([sys.executable, os.path.join(BASE, "bump_version.py")]
-              + sys.argv[1:], "递增版本号")
-    m = re.search(r"版本号:\s*([\d.]+)\s*->\s*([\d.]+)", out)
-    ver = m.group(2) if m else "0.0.0"
-    print(f"当前版本: v{ver}")
+    # 1) 版本号：先读旧的，递增后从 main.py 直接读新的（避免中文输出解析）
+    old_ver = re.search(r'APP_VERSION\s*=\s*"([^"]+)"',
+                        open(os.path.join(BASE, "main.py"), encoding="utf-8").read())
+    old_ver = old_ver.group(1) if old_ver else "0.0.0"
+    run([sys.executable, os.path.join(BASE, "bump_version.py")]
+        + sys.argv[1:], "递增版本号")
+    m = re.search(r'APP_VERSION\s*=\s*"([^"]+)"',
+                  open(os.path.join(BASE, "main.py"), encoding="utf-8").read())
+    ver = m.group(1) if m else "0.0.0"
+    print(f"版本号: {old_ver} -> v{ver}")
 
     # 2) 前端
     if os.path.isdir(os.path.join(BASE, "node_modules")):
