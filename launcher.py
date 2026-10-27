@@ -58,14 +58,20 @@ def _save_port(port: int) -> None:
 
 
 def _is_our_crm(port: int, timeout: float = 1.0) -> bool:
-    """探测该端口跑的是不是我们自己的 CRM（识别 /api/version 应答）"""
+    """探测该端口跑的是不是我们自己的 CRM（识别 /api/version 应答）
+
+    判据：应答是 JSON 且 app 字段为「外贸CRM」（UTF-8 字节比对，
+    应答体里没有 'trade_crm' 这个 ASCII 串，不要用它判断）。
+    """
     import urllib.request
     try:
         with urllib.request.urlopen(
             f"http://127.0.0.1:{port}/api/version", timeout=timeout
         ) as r:
             if r.status == 200:
-                return b"trade_crm" in r.read() or b"\xe5\xa4\x96\xe8\xb4\xb8" in r.read()
+                # 注意：read() 只能调一次，第二次返回空串
+                body = r.read()
+                return b"\xe5\xa4\x96\xe8\xb4\xb8" in body  # 「外贸」的 UTF-8
     except Exception:
         pass
     return False
@@ -398,6 +404,39 @@ def _ensure_desktop_shortcut() -> None:
         pass
 
 
+def _running_version(port: int) -> str:
+    """查询端口上运行中的 CRM 版本号，失败返回空串"""
+    import urllib.request
+    import json as _json
+    try:
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{port}/api/version", timeout=1.5
+        ) as r:
+            return str((_json.loads(r.read().decode('utf-8')) or {}).get("version") or "")
+    except Exception:
+        return ""
+
+
+def _ver_tuple(v: str):
+    try:
+        return tuple(int(x) for x in str(v).lstrip("v").split("."))
+    except Exception:
+        return (0,)
+
+
+def _current_version() -> str:
+    """本程序携带的版本号（exe 旁的 version.json）"""
+    try:
+        import json as _json
+        vf = os.path.join(_exe_dir(), "version.json")
+        if os.path.isfile(vf):
+            with open(vf, "r", encoding="utf-8-sig") as f:
+                return str((_json.load(f) or {}).get("version") or "")
+    except Exception:
+        pass
+    return ""
+
+
 def main() -> int:
     # --windowed 打包后 sys.stdout/stderr 为 None，任何 print 都会抛异常。
     # 先重定向到日志，保证后面所有 print 安全。
@@ -409,12 +448,33 @@ def main() -> int:
     global APP_URL
     APP_URL = app_url
 
-    # 端口上跑的已是我们的 CRM：直接打开页面，不重复启动
+    # 端口上跑的已是我们的 CRM：
+    # - 版本相同或更新 → 直接打开页面，不重复启动
+    # - 版本更旧（升级后旧实例还挂着）→ 结束旧实例，继续启动新版本
     if _port_in_use(port) and _is_our_crm(port):
-        how = _open_in_browser(app_url)
-        print(f"检测到 CRM 已经在运行，已为你打开页面（{how}）。")
-        time.sleep(1.5)
-        return 0
+        running_ver = _running_version(port)
+        my_ver = _current_version()
+        if not my_ver or not running_ver or _ver_tuple(running_ver) >= _ver_tuple(my_ver):
+            how = _open_in_browser(app_url)
+            print(f"检测到 CRM 已经在运行，已为你打开页面（{how}）。")
+            time.sleep(1.5)
+            return 0
+        # 旧版本还占着端口：结束它，让新版本接管
+        print(f"检测到旧版本 v{running_ver} 仍在运行，结束它以启动 v{my_ver}")
+        try:
+            subprocess.run(["taskkill", "/IM", "启动外贸CRM.exe", "/F"],
+                           capture_output=True, timeout=15)
+            subprocess.run(["taskkill", "/IM", "外贸CRM.exe", "/F"],
+                           capture_output=True, timeout=15)
+        except Exception:
+            pass
+        time.sleep(2.0)
+        if _port_in_use(port):
+            # 旧实例杀不掉（极端情况）：至少保证不双开，直接打开旧版页面
+            how = _open_in_browser(app_url)
+            print(f"旧实例未能结束，已为你打开现有页面（{how}）。")
+            time.sleep(1.5)
+            return 0
 
     import threading
 
