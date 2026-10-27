@@ -3051,8 +3051,11 @@ def _tray_icon_image():
     return img
 
 
-def start_tray(open_url: str = "http://127.0.0.1:8000") -> bool:
+def start_tray(open_url: str = "") -> bool:
     """启动托盘图标，返回是否成功
+
+    open_url 留空时用 LOCAL_PORT 拼接（托盘在 main.py 模块加载时启动，
+    而 LOCAL_PORT 定义在文件尾部；这里延迟计算保证拿到正确端口）。
 
     菜单项：
       打开 CRM      —— 在默认浏览器里打开界面
@@ -3061,6 +3064,8 @@ def start_tray(open_url: str = "http://127.0.0.1:8000") -> bool:
       退出程序
     失败时静默返回 False，不影响主功能。
     """
+    if not open_url:
+        open_url = f"http://127.0.0.1:{_local_port()}"
     try:
         import pystray
     except Exception:
@@ -3197,6 +3202,31 @@ def _start_sync_thread() -> None:
         pass
 
 
+# ---------- 本地服务端口 ----------
+#
+# 8000 是首选端口；若被用户机器上的其他服务占用，launcher.py 会选定一个
+# 备用端口并写进 config.json 的 local_port 字段，这里读取同一个值，
+# 保证托盘菜单、自动开浏览器、uvicorn 三者端口一致。
+# 环境变量 CRM_PORT 优先（开发/调试用），其次 config.json，最后默认 8000。
+
+def _local_port() -> int:
+    try:
+        env = os.environ.get("CRM_PORT")
+        if env and env.isdigit() and 1024 <= int(env) <= 65535:
+            return int(env)
+    except Exception:
+        pass
+    try:
+        v = load_config().get("local_port")
+        if isinstance(v, int) and 1024 <= v <= 65535:
+            return v
+    except Exception:
+        pass
+    return 8000
+
+
+LOCAL_PORT = _local_port()
+
 _start_sync_thread()
 _start_tray_thread()
 
@@ -3204,9 +3234,9 @@ _start_tray_thread()
 if __name__ == "__main__":
     import uvicorn
 
-    url = "http://127.0.0.1:8000"
+    url = f"http://127.0.0.1:{LOCAL_PORT}"
     print("=" * 46)
-    print("  外贸 CRM  v0.2")
+    print(f"  外贸 CRM  v{read_local_version()}")
     print(f"  网址：{url}")
     print(f"  数据：{DB_PATH}")
     print("  关闭本窗口即退出程序")
@@ -3216,4 +3246,4 @@ if __name__ == "__main__":
     if os.environ.get("CRM_NO_BROWSER") != "1":
         threading.Thread(target=_open_browser_when_ready, args=(url,), daemon=True).start()
 
-    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="warning")
+    uvicorn.run(app, host="127.0.0.1", port=LOCAL_PORT, log_level="warning")

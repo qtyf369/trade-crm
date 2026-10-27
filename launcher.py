@@ -13,7 +13,79 @@ import time
 import traceback
 import webbrowser
 
-APP_URL = "http://127.0.0.1:8000"
+APP_NAME = "外贸CRM"
+
+
+def _exe_dir() -> str:
+    """exe/脚本所在目录（数据与配置都在这里）"""
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def _read_saved_port() -> int:
+    """读取上次运行记录的端口（config.json 的 local_port 字段）"""
+    try:
+        cfg = os.path.join(_exe_dir(), "config.json")
+        if os.path.isfile(cfg):
+            import json
+            with open(cfg, "r", encoding="utf-8-sig") as f:
+                v = (json.load(f) or {}).get("local_port")
+            if isinstance(v, int) and 1024 <= v <= 65535:
+                return v
+    except Exception:
+        pass
+    return 8000
+
+
+def _save_port(port: int) -> None:
+    """把本次选定的端口写进 config.json（main.py 启动时读同一个值）"""
+    try:
+        import json
+        cfg = os.path.join(_exe_dir(), "config.json")
+        data = {}
+        if os.path.isfile(cfg):
+            try:
+                with open(cfg, "r", encoding="utf-8-sig") as f:
+                    data = json.load(f) or {}
+            except Exception:
+                data = {}
+        data["local_port"] = int(port)
+        with open(cfg, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def _is_our_crm(port: int, timeout: float = 1.0) -> bool:
+    """探测该端口跑的是不是我们自己的 CRM（识别 /api/version 应答）"""
+    import urllib.request
+    try:
+        with urllib.request.urlopen(
+            f"http://127.0.0.1:{port}/api/version", timeout=timeout
+        ) as r:
+            if r.status == 200:
+                return b"trade_crm" in r.read() or b"\xe5\xa4\x96\xe8\xb4\xb8" in r.read()
+    except Exception:
+        pass
+    return False
+
+
+def _find_free_port(preferred: int) -> int:
+    """preferred 空闲直接返回；被占用则从备用池挑一个真正能绑定的端口"""
+    candidates = [preferred] + [p for p in range(8010, 8041) if p != preferred]
+    for p in candidates:
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                s.bind(("127.0.0.1", p))
+            return p
+        except OSError:
+            continue
+    return preferred  # 理论到不了这里，兜底交由 uvicorn 报错
+
+
+APP_URL = f"http://127.0.0.1:{_read_saved_port()}"
 
 
 class _Tee:
@@ -124,13 +196,42 @@ def _port_in_use(port: int = 8000) -> bool:
     return r
 
 
-def _wait_ready(timeout: float = 20.0) -> bool:
+def _resolve_port() -> int:
+    """确定本次使用的端口，并同步给 main.py（写 config.json）
+
+    策略：
+    1. 上次记录的端口空闲 → 沿用
+    2. 被占用但应答的是我们自己的 CRM → 直接复用（重复双击场景）
+    3. 被别的服务占用 → 从备用池找空闲端口，持久化后使用
+    """
+    saved = _read_saved_port()
+
+    if not _port_in_use(saved):
+        _save_port(saved)
+        return saved
+
+    if _is_our_crm(saved):
+        print(f"[boot] port {saved} is our CRM, reuse it")
+        _save_port(saved)
+        return saved
+
+    # 被别的服务占用：换备用端口
+    port = _find_free_port(saved)
+    if port != saved:
+        print(f"[boot] port {saved} occupied by other service, fallback to {port}")
+    _save_port(port)
+    return port
+
+
+def _wait_ready(timeout: float = 20.0, port: int = 8000) -> bool:
     """等待服务真正可用，再打开浏览器，避免白屏"""
     import urllib.request
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
-            with urllib.request.urlopen(f"{APP_URL}/api/sync/status", timeout=1.5) as r:
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{port}/api/sync/status", timeout=1.5
+            ) as r:
                 if r.status == 200:
                     return True
         except Exception:
@@ -302,9 +403,15 @@ def main() -> int:
     # 先重定向到日志，保证后面所有 print 安全。
     _ensure_std_streams()
 
-    # 已在运行：直接打开页面，不重复启动
-    if _port_in_use():
-        how = _open_in_browser(APP_URL)
+    # 确定端口：8000 优先，被其他服务占用时自动换备用端口并记住
+    port = _resolve_port()
+    app_url = f"http://127.0.0.1:{port}"
+    global APP_URL
+    APP_URL = app_url
+
+    # 端口上跑的已是我们的 CRM：直接打开页面，不重复启动
+    if _port_in_use(port) and _is_our_crm(port):
+        how = _open_in_browser(app_url)
         print(f"检测到 CRM 已经在运行，已为你打开页面（{how}）。")
         time.sleep(1.5)
         return 0
@@ -317,8 +424,8 @@ def main() -> int:
     browser_used = {"how": ""}
 
     def opener():
-        if _wait_ready():
-            browser_used["how"] = _open_in_browser(APP_URL)
+        if _wait_ready(port=port):
+            browser_used["how"] = _open_in_browser(app_url)
             print(f"已用 {browser_used['how']} 打开页面")
 
     threading.Thread(target=opener, daemon=True).start()
@@ -367,7 +474,7 @@ def main() -> int:
 
     print("=" * 50)
     print("  外贸 CRM")
-    print(f"  服务地址：{APP_URL}")
+    print(f"  服务地址：{app_url}")
     print(f"  数据目录：{app_module.BASE_DIR}")
     print("  系统托盘右键可打开页面 / 退出程序")
     print("=" * 50)
@@ -375,7 +482,7 @@ def main() -> int:
     # 托盘已由 main.py 在模块加载时启动（开发版与打包版都可用），此处不再重复
 
     import uvicorn
-    uvicorn.run(app_module.app, host="127.0.0.1", port=8000, log_level="warning")
+    uvicorn.run(app_module.app, host="127.0.0.1", port=port, log_level="warning")
     return 0
 
 
