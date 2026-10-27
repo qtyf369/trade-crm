@@ -206,25 +206,34 @@ def _resolve_port() -> int:
     """确定本次使用的端口，并同步给 main.py（写 config.json）
 
     策略：
-    1. 上次记录的端口空闲 → 沿用
-    2. 被占用但应答的是我们自己的 CRM → 直接复用（重复双击场景）
-    3. 被别的服务占用 → 从备用池找空闲端口，持久化后使用
+    1. 首选 8000：空闲就用（上次的备用端口即使空闲也先让位，
+       8000 是约定端口，用户的浏览器代理规则/肌肉记忆都以它为准）
+    2. 8000 被占用但应答的是我们自己的 CRM → 直接复用（重复双击场景）
+    3. 8000 被别的服务占用 → 若上次备用端口空闲则沿用，否则找新的备用端口
     """
     saved = _read_saved_port()
 
-    if not _port_in_use(saved):
+    # 每次启动都先尝试回归首选端口 8000（用户可能已关掉占 8000 的软件）
+    if not _port_in_use(8000):
+        _save_port(8000)
+        print("[boot] using default port 8000")
+        return 8000
+
+    if _is_our_crm(8000):
+        print("[boot] port 8000 is our CRM, reuse it")
+        _save_port(8000)
+        return 8000
+
+    # 8000 被别的服务占用：优先沿用上次的备用端口（空闲时），
+    # 这样浏览器书签/记忆的地址保持稳定
+    if saved != 8000 and not _port_in_use(saved):
+        print(f"[boot] port 8000 busy, reuse saved port {saved}")
         _save_port(saved)
         return saved
 
-    if _is_our_crm(saved):
-        print(f"[boot] port {saved} is our CRM, reuse it")
-        _save_port(saved)
-        return saved
-
-    # 被别的服务占用：换备用端口
-    port = _find_free_port(saved)
-    if port != saved:
-        print(f"[boot] port {saved} occupied by other service, fallback to {port}")
+    # 找新的备用端口
+    port = _find_free_port(saved if saved != 8000 else 8010)
+    print(f"[boot] port 8000 occupied by other service, fallback to {port}")
     _save_port(port)
     return port
 

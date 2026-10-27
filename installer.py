@@ -197,6 +197,23 @@ def install_to(target: str, status=None) -> str:
     say("创建目录…")
     os.makedirs(target, exist_ok=True)
 
+    # 升级时先清掉旧程序文件（历史 bundle 会越堆越多、浏览器缓存混乱），
+    # 只保留用户数据与配置
+    keep_dirs = {"data", "backups"}
+    keep_files = {"config.json", "ui_settings.json", "sync_state.json"}
+    say("清理旧版本文件…")
+    for entry in os.listdir(target):
+        full = os.path.join(target, entry)
+        if entry in keep_dirs or entry in keep_files:
+            continue
+        try:
+            if os.path.isdir(full):
+                shutil.rmtree(full, ignore_errors=True)
+            else:
+                os.remove(full)
+        except OSError:
+            pass
+
     say("复制程序文件…")
     preserve = {"data"}
     preserve_files = {"config.json", "ui_settings.json", "sync_state.json"}
