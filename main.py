@@ -3166,7 +3166,7 @@ def _start_tray_thread() -> None:
 
 # ---------- 版本信息（更新由独立的安装器完成，见 installer.py） ----------
 
-APP_VERSION = "0.5.2"
+APP_VERSION = "0.5.3"
 VERSION_FILE = os.path.join(BASE_DIR, "version.json")
 
 
