@@ -219,7 +219,7 @@ def _resolve_port() -> int:
         print("[boot] using default port 8000")
         return 8000
 
-    if _is_our_crm(8000):
+    if _is_our_crm(8000, timeout=0.5):
         print("[boot] port 8000 is our CRM, reuse it")
         _save_port(8000)
         return 8000
